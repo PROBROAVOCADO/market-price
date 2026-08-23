@@ -147,6 +147,8 @@ nav#tabs button[aria-current="true"]{color:var(--herb-green);opacity:1;font-weig
   display:inline-flex;align-items:center;gap:6px;
 }
 .chip .num{font-size:.7rem;opacity:.8;font-weight:500}
+.chip .dotMk{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:1px}
+.chip.on .dotMk{background:var(--creamy) !important;opacity:.9}
 .chip.on{background:var(--herb-green);border-color:var(--herb-green);color:var(--creamy)}
 .chip.on .num{opacity:.9}
 
@@ -191,6 +193,12 @@ nav#tabs button[aria-current="true"]{color:var(--herb-green);opacity:1;font-weig
   content:"";display:block;width:80%;max-width:420px;height:0;
   border-top:1px dashed var(--rule);margin:12px auto 14px;
 }
+
+.rangeLine{
+  font-size:.7rem;color:var(--avo-accent);letter-spacing:.5px;
+  margin:-2px 4px 10px;text-align:center;
+}
+.rangeLine b{color:var(--clay-deep);font-weight:700;font-variant-numeric:tabular-nums}
 
 /* ── 走勢圖 ─────────────────────────────────────── */
 .chartBox{padding:12px 10px 10px;margin-bottom:8px}
