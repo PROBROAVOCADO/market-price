@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap" rel="stylesheet">
 
-<title>農產價格行情</title>
+<title>波波酪梨｜農產行情</title>
 <style>
 /* =========================================================
    🥑 波波酪梨 · 農產行情
@@ -327,6 +327,36 @@ nav#tabs button[aria-current="true"]{color:var(--herb-green);opacity:1;font-weig
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .cropItem.on{background:var(--sage-mist)}
 .cropItem.on b{color:var(--herb-green)}
+
+
+/* ── 頁尾 Colophon ─────────────────────────────── */
+.colophon{
+  margin:34px 4px 8px;padding:26px 16px 4px;
+  border-top:1px solid var(--rule-soft);text-align:center;
+}
+.colophon-title{
+  font-family:var(--heading-font);font-size:.82rem;font-weight:600;
+  letter-spacing:4px;text-indent:4px;color:var(--avo-dark);margin:0;
+}
+/* 沿用網站 .title-divider 的兩端圓點 */
+.colophon-rule{
+  position:relative;width:150px;height:1px;background:var(--rule);
+  margin:14px auto 16px;
+}
+.colophon-rule::before,.colophon-rule::after{
+  content:"";position:absolute;top:50%;width:6px;height:6px;border-radius:50%;
+  background:var(--avo-accent);transform:translateY(-50%);
+}
+.colophon-rule::before{left:-3px}
+.colophon-rule::after{right:-3px}
+.colophon-line{
+  font-size:.76rem;line-height:1.8;color:var(--clay-deep);
+  letter-spacing:.3px;margin:0;max-width:280px;margin-inline:auto;
+}
+.colophon-meta{
+  font-family:var(--heading-font);font-size:.7rem;letter-spacing:2px;
+  color:var(--avo-accent);margin:18px 0 0;font-variant-numeric:tabular-nums;
+}
 
 /* ── Toast ──────────────────────────────────────── */
 #toast{
