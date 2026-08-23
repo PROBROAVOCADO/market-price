@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.2.0
+/* 波波酪梨 · 農產品行情  app.js  v1.2.1
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -10,7 +10,7 @@
  */
 'use strict';
 
-const VERSION = 'v1.2.0';
+const VERSION = 'v1.2.1';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 40;          // 一次抓 40 天，7 日／30 日兩種檢視都不必重抓
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
@@ -751,8 +751,15 @@ function 設定畫面() {
     </div>
     <div class="setRow">
       <p>資料來源：農業部農業資料開放平臺「農產品交易行情」，依政府資料開放平臺資料使用規範利用。<br>
-         本 App 為個人工具，與農業部無關。<br>
-         版本 ${VERSION}</p>
+         本 App 為個人工具，與農業部無關。</p>
+    </div>
+
+    <div class="colophon">
+      <p class="colophon-title">PRO-BRO AVOCADO</p>
+      <div class="colophon-rule"></div>
+      <p class="colophon-line">A field tool for growers, built on a
+         family avocado farm in Nantou, Taiwan.</p>
+      <p class="colophon-meta">${VERSION} &nbsp;·&nbsp; © ${new Date().getFullYear()}</p>
     </div>
   `;
 
