@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.3.2
+/* 波波酪梨 · 農產品行情  app.js  v1.3.3
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -10,7 +10,7 @@
  */
 'use strict';
 
-const VERSION = 'v1.3.2';
+const VERSION = 'v1.3.3';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
@@ -872,6 +872,13 @@ function 設定畫面() {
 
     <div class="secTitle">維護</div>
     <button class="btn ghost wide" id="btnClear">清除本機資料與設定</button>
+
+    <div class="setRow">
+      <h3>統計與隱私</h3>
+      <p>本 App 使用 <b>Cloudflare Web Analytics</b> 統計匿名瀏覽數，用來了解有多少人在使用。<br><br>
+         <b>不使用 cookie</b>、不做跨站追蹤、不記錄任何可識別個人的資料。<br><br>
+         你選的作物與市場只存在這台裝置的瀏覽器裡，不會傳送到任何地方。</p>
+    </div>
 
     <div class="setRow disclaimer">
       <h3>免責聲明</h3>
