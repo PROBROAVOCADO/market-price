@@ -434,5 +434,11 @@ nav#tabs button[aria-current="true"]{color:var(--herb-green);opacity:1;font-weig
 <div id="sheetHost"></div>
 <div id="toast"></div>
 <script src="app.js"></script>
+
+<!-- Cloudflare Web Analytics
+     匿名瀏覽統計。不使用 cookie、不做跨站追蹤。
+     跨網域請求，sw.js 會直接放行不快取，離線時靜默失敗，不影響 App 運作。 -->
+<script type="module" defer src="https://static.cloudflareinsights.com/beacon.min.js"
+        data-cf-beacon='{"token": "4374cef2349240769f0e9e37caaf1ae2"}'></script>
 </body>
 </html>
