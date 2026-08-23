@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.2.2
+/* 波波酪梨 · 農產品行情  app.js  v1.3.2
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -10,9 +10,9 @@
  */
 'use strict';
 
-const VERSION = 'v1.2.2';
+const VERSION = 'v1.3.2';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
-const FETCH_DAYS = 40;          // 一次抓 40 天，7 日／30 日兩種檢視都不必重抓
+const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
 
 const CROP_DEFAULT = { code: 'G3', name: '酪梨' };
@@ -25,7 +25,10 @@ const LS = {
   list:   'probroMarketCropList',
   listAt: 'probroMarketCropListAt'
 };
-const STALE_MS = 20 * 60 * 60 * 1000;         // 行情一天更新一次
+/* 行情站當日下午就會發佈當天資料，發佈時間不固定，所以不用「幾點之後才抓」這種寫死的規則。
+   改成：手上還沒有今天的資料就繼續試，已經拿到就放慢。 */
+const MIN_GAP = 30 * 60 * 1000;               // 兩次自動抓取的最短間隔
+const MAX_AGE = 6 * 60 * 60 * 1000;           // 就算已有今日資料，超過這個時間仍重抓一次
 const LIST_TTL = 30 * 24 * 60 * 60 * 1000;    // 作物清單一個月重抓一次
 
 /* ── 狀態 ──────────────────────────────────────────────── */
@@ -37,7 +40,8 @@ const S = {
   rows: [],           // [{d, mc, up, mid, low, avg, qty}]
   fetchedAt: null,
   days: 7,
-  metric: 'avg',
+  focus: null,        // null＝三市比較；市場代號＝單一市場價格帶
+  metric: 'avg',     // 比較模式：avg/mid/up/low/qty ｜ 單市模式：band/qty
   loading: false,
   err: '',
   chart: null,
@@ -171,6 +175,7 @@ function 校正市場選擇(重設) {
   const 有 = new Set(S.mkRank.map(m => m.code));
   S.markets = 重設 ? [] : S.markets.filter(mc => 有.has(mc));
   if (!S.markets.length) S.markets = S.mkRank.slice(0, MAX_MK).map(m => m.code);
+  if (S.focus && S.markets.indexOf(S.focus) < 0) S.focus = null;   // 焦點市場被移除就回到比較模式
   存選擇();
 }
 
@@ -263,6 +268,21 @@ function 寫快取() {
 }
 
 /* ── 更新 ──────────────────────────────────────────────── */
+
+const 今天ISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+};
+const 最新資料日 = () => S.rows.length ? S.rows[S.rows.length - 1].d : null;
+
+/** 自動更新的判斷。手動按重新整理不走這裡，一律直接抓。 */
+function 需要更新() {
+  if (!S.rows.length) return true;
+  const age = Date.now() - new Date(S.fetchedAt || 0).getTime();
+  if (age > MAX_AGE) return true;
+  if (age < MIN_GAP) return false;
+  return 最新資料日() < 今天ISO();     // 還沒拿到今天的，就繼續試
+}
 async function 更新(手動, 重設市場) {
   if (S.loading) return;
   S.loading = true; S.err = '';
@@ -316,6 +336,22 @@ function 加權均價(rows) {
 
 /* ── 走勢圖 ────────────────────────────────────────────── */
 
+const METRIC_CMP = [
+  { k: 'avg', n: '均價' }, { k: 'mid', n: '中價' },
+  { k: 'up',  n: '上價' }, { k: 'low', n: '下價' },
+  { k: 'qty', n: '交易量' }
+];
+const METRIC_ONE = [ { k: 'band', n: '價格帶' }, { k: 'qty', n: '交易量' } ];
+
+const 指標清單 = () => S.focus ? METRIC_ONE : METRIC_CMP;
+const 指標名 = k => (指標清單().find(m => m.k === k) || {}).n || '';
+
+/** 切換模式時，把不適用的指標拉回該模式的預設值 */
+function 校正指標() {
+  const ok = 指標清單().some(m => m.k === S.metric);
+  if (!ok) S.metric = S.focus ? 'band' : 'avg';
+}
+
 /** 把座標軸切成好讀的刻度：40/50/60，而不是 42.4/47.7/53.1 */
 function 好刻度(range, 段數) {
   const raw = range / 段數;
@@ -325,25 +361,12 @@ function 好刻度(range, 段數) {
   return step * mag;
 }
 
-function 走勢圖(rows) {
-  const dates = 期間日期(rows);
-  if (dates.length < 2) return '<div class="empty">這個期間的資料還不足以畫出走勢</div>';
+/* 畫布幾何：PR 要留得下最右邊的日期標籤 */
+const GEO = { W: 340, H: 172, PL: 40, PR: 14, PT: 12, PB: 26 };
 
-  const idx = {};
-  dates.forEach((d, i) => { idx[d] = i; });
-
-  const series = S.markets.map((mc, i) => {
-    const pts = new Array(dates.length).fill(null);
-    rows.forEach(r => {
-      if (r.mc !== mc) return;
-      const v = S.metric === 'avg' ? r.avg : r.qty;
-      if (v > 0) pts[idx[r.d]] = v;
-    });
-    return { mc, name: S.mkName[mc] || mc, color: 色(i), pts };
-  });
-
-  // PR 要留得下最右邊的日期標籤；首尾標籤靠邊對齊，就不會溢出畫布
-  const W = 340, H = 172, PL = 40, PR = 14, PT = 12, PB = 26;
+/** 共用外殼：格線、日期標籤、游標線、感應區 */
+function 組圖(dates, series, 額外, opts) {
+  const { W, H, PL, PR, PT, PB } = GEO;
   const iw = W - PL - PR, ih = H - PT - PB;
 
   let lo = Infinity, hi = -Infinity;
@@ -352,9 +375,9 @@ function 走勢圖(rows) {
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }));
-  if (!isFinite(lo)) return '<div class="empty">這個期間沒有交易資料</div>';
+  if (!isFinite(lo)) return null;
 
-  if (S.metric === 'qty') lo = 0;
+  if (opts.zero) lo = 0;
   if (lo === hi) { lo = lo * 0.9; hi = hi * 1.1 || 1; }
 
   const step = 好刻度(hi - lo || 1, 4);
@@ -369,8 +392,7 @@ function 走勢圖(rows) {
   let g = '';
   for (let v = lo; v <= hi + 1e-9; v += step) {
     const y = Y(v);
-    const lab = S.metric === 'avg' ? 錢(v)
-      : (v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v));
+    const lab = opts.zero ? (v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v)) : 錢(v);
     g += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}"
             stroke="#7A6449" stroke-opacity="0.16" stroke-width="1" stroke-dasharray="3 3"/>`;
     g += `<text x="${PL - 6}" y="${(y + 3.6).toFixed(1)}" text-anchor="end"
@@ -382,18 +404,21 @@ function 走勢圖(rows) {
     ? dates.map((_, i) => i)
     : [0, Math.round(末 / 3), Math.round(末 * 2 / 3), 末];
   [...new Set(labIdx)].forEach(i => {
-    const a = i === 0 ? 'start' : i === 末 ? 'end' : 'middle';
-    g += `<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${a}"
+    const anc = i === 0 ? 'start' : i === 末 ? 'end' : 'middle';
+    g += `<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${anc}"
             font-size="10" fill="#9A7E5D" font-weight="600">${月日(dates[i])}</text>`;
   });
+
+  if (額外) g += 額外(X, Y);      // 價格帶的色塊畫在格線之上、線條之下
 
   g += `<line id="xh" x1="${X(末).toFixed(1)}" y1="${PT}" x2="${X(末).toFixed(1)}"
           y2="${PT + ih}" stroke="#3E4C33" stroke-width="1.5" opacity="0.30"/>`;
 
   series.forEach(s => {
+    if (s.hidden) return;
     const pl = [];
     s.pts.forEach((v, i) => {
-      if (v == null) return;        // 該市場當天休市 → 跨過，線接續
+      if (v == null) return;      // 該日休市 → 跨過，線接續
       pl.push(`${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
     });
     if (!pl.length) return;
@@ -402,25 +427,91 @@ function 走勢圖(rows) {
       g += `<circle cx="${x}" cy="${y}" r="3" fill="${s.color}"/>`;
     } else {
       g += `<polyline points="${pl.join(' ')}" fill="none" stroke="${s.color}"
-              stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+              stroke-width="${s.w || 2.2}" stroke-linejoin="round" stroke-linecap="round"
+              ${s.dash ? `stroke-dasharray="${s.dash}"` : ''} opacity="${s.op || 1}"/>`;
     }
   });
 
-  series.forEach(s => {
-    g += `<circle class="xhDot" data-mc="${esc(s.mc)}" cx="0" cy="0" r="4"
+  series.forEach((s, i) => {
+    g += `<circle class="xhDot" data-i="${i}" cx="0" cy="0" r="4"
             fill="${s.color}" stroke="#FAF7EF" stroke-width="2" opacity="0"/>`;
   });
 
-  g += `<rect id="scrub" x="${PL}" y="0" width="${iw}" height="${H}" fill="transparent"/>`;
+  g += `<rect id="scrub" x="${PL}" y="0" width="${iw}" height="${GEO.H}" fill="transparent"/>`;
 
-  S.chart = { dates, series, PL, iw, W, X, Y, 末 };
+  S.chart = { dates, series, PL, iw, W, X, Y, 末, unit: opts.unit };
 
   return `<div class="chartBox">
-    <svg id="chart" viewBox="0 0 ${W} ${H}" role="img"
-         aria-label="${S.metric === 'avg' ? '各市場均價走勢' : '各市場交易量走勢'}">${g}</svg>
+    <svg id="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${opts.label}">${g}</svg>
     <div class="readout" id="readout"></div>
     <div class="hintLine">按住圖表左右滑動，可查看各日數字</div>
   </div>`;
+}
+
+function 走勢圖(rows) {
+  const dates = 期間日期(rows);
+  if (dates.length < 2) return '<div class="empty">這個期間的資料還不足以畫出走勢</div>';
+  const idx = {};
+  dates.forEach((d, i) => { idx[d] = i; });
+
+  const 取 = (mc, key) => {
+    const pts = new Array(dates.length).fill(null);
+    rows.forEach(r => {
+      if (r.mc !== mc) return;
+      const v = r[key];
+      if (v > 0) pts[idx[r.d]] = v;
+    });
+    return pts;
+  };
+
+  let html;
+  if (!S.focus) {
+    /* 三市比較：一個指標、三條線 */
+    const series = S.markets.map((mc, i) => ({
+      name: S.mkName[mc] || mc, color: 色(i), pts: 取(mc, S.metric)
+    }));
+    html = 組圖(dates, series, null, {
+      zero: S.metric === 'qty',
+      unit: S.metric === 'qty' ? '交易量' : '元/公斤',
+      label: `各市場${指標名(S.metric)}走勢`
+    });
+  } else if (S.metric === 'qty') {
+    /* 單一市場的交易量 */
+    const i = Math.max(0, S.markets.indexOf(S.focus));
+    html = 組圖(dates, [{ name: '交易量', color: 色(i), pts: 取(S.focus, 'qty') }], null, {
+      zero: true, unit: '交易量', label: `${S.mkName[S.focus] || ''}交易量走勢`
+    });
+  } else {
+    /* 單一市場價格帶：市場卡上那條橫條，沿時間拉長 */
+    const i = Math.max(0, S.markets.indexOf(S.focus));
+    const c = 色(i);
+    const ups = 取(S.focus, 'up'), lows = 取(S.focus, 'low');
+    const series = [
+      { name: '上價', color: c, pts: ups,             hidden: true },
+      { name: '中價', color: '#3E4C33', pts: 取(S.focus, 'mid'), w: 1.6, dash: '4 3', op: .7 },
+      { name: '下價', color: c, pts: lows,            hidden: true },
+      { name: '均價', color: c, pts: 取(S.focus, 'avg'), w: 2.6 }
+    ];
+    const 色帶 = (X, Y) => {
+      const top = [], bot = [];
+      ups.forEach((v, k) => { if (v != null) top.push(`${X(k).toFixed(1)},${Y(v).toFixed(1)}`); });
+      for (let k = lows.length - 1; k >= 0; k--) {
+        if (lows[k] != null) bot.push(`${X(k).toFixed(1)},${Y(lows[k]).toFixed(1)}`);
+      }
+      if (top.length < 2 || bot.length < 2) return '';
+      return `<polygon points="${top.concat(bot).join(' ')}" fill="${c}" fill-opacity="0.18"/>`
+           + `<polyline points="${top.join(' ')}" fill="none" stroke="${c}" stroke-width="1.2"
+                stroke-opacity="0.55" stroke-linejoin="round"/>`
+           + `<polyline points="${bot.join(' ')}" fill="none" stroke="${c}" stroke-width="1.2"
+                stroke-opacity="0.55" stroke-linejoin="round"/>`;
+    };
+    series.color = c;
+    html = 組圖(dates, series, 色帶, {
+      zero: false, unit: '元/公斤', label: `${S.mkName[S.focus] || ''}價格帶走勢`
+    });
+  }
+
+  return html || '<div class="empty">這個期間沒有交易資料</div>';
 }
 
 /** 更新圖表下方的讀數列，並把游標移到第 i 天 */
@@ -436,7 +527,7 @@ function 更新讀數(i) {
   }
 
   document.querySelectorAll('.xhDot').forEach(el => {
-    const s = c.series.find(x => x.mc === el.dataset.mc);
+    const s = c.series[+el.dataset.i];
     const v = s ? s.pts[i] : null;
     if (v == null) { el.setAttribute('opacity', '0'); return; }
     el.setAttribute('cx', c.X(i).toFixed(1));
@@ -449,13 +540,13 @@ function 更新讀數(i) {
   const d = c.dates[i];
   const vals = c.series.map(s => {
     const v = s.pts[i];
-    const txt = v == null ? '休市' : (S.metric === 'avg' ? 錢(v) : 公斤(v));
+    const txt = v == null ? '休市' : (c.unit === '交易量' ? 公斤(v) : 錢(v));
     return `<span class="${v == null ? 'off' : ''}">
       <i style="background:${s.color}"></i>${esc(s.name)} <b class="num">${txt}</b></span>`;
   }).join('');
 
   box.innerHTML = `<div class="roDate">${月日(d)}（${週(d)}）
-      <span class="roUnit">${S.metric === 'avg' ? '元/公斤' : '交易量'}</span></div>
+      <span class="roUnit">${esc(c.unit)}</span></div>
     <div class="roVals">${vals}</div>`;
 }
 
@@ -542,7 +633,7 @@ function 市場卡(mc, i, rows) {
     </div>
 
     <div class="bandKey">
-      <span>近 ${S.days} 日均價 <b class="num">${錢(wavg)}</b></span>
+      <span>近 ${S.days} 個交易日均價 <b class="num">${錢(wavg)}</b></span>
       <span>期間總量 <b class="num">${公斤(totQty)}</b></span>
     </div>
   </div>`;
@@ -550,7 +641,7 @@ function 市場卡(mc, i, rows) {
 
 /* ── 畫面 ──────────────────────────────────────────────── */
 function 畫面() {
-  const 過期 = S.fetchedAt && (Date.now() - new Date(S.fetchedAt).getTime() > STALE_MS);
+  const 過期 = S.fetchedAt && (Date.now() - new Date(S.fetchedAt).getTime() > MAX_AGE);
   const txt = S.loading ? '更新中…' : S.fetchedAt ? '更新於 ' + 時刻(S.fetchedAt) : '尚無資料';
   ['#stamp', '#stamp2'].forEach(sel => {
     const el = $(sel);
@@ -578,23 +669,44 @@ function 行情畫面() {
       ${S.rows.length ? '下面顯示的是上次成功取得的資料。' : '確認網路後再按重新整理。'}</div>`;
   }
 
+  校正指標();
+
+  const 市場鈕 = S.markets.map((mc, i) => {
+    const on = S.focus === mc;
+    return `<button class="chip ${on ? 'on' : ''}" data-focus="${esc(mc)}"
+      ${on ? `style="background:${色(i)};border-color:${色(i)}"` : ''}
+      ><i class="dotMk" style="background:${色(i)}"></i>${esc(S.mkName[mc] || mc)}</button>`;
+  }).join('');
+
   h += `<div class="chips">
-    <button class="chip ${S.days === 7 ? 'on' : ''}" data-days="7">近 7 日</button>
-    <button class="chip ${S.days === 30 ? 'on' : ''}" data-days="30">近 30 日</button>
+    <button class="chip ${S.days === 7 ? 'on' : ''}" data-days="7">近 7 個交易日</button>
+    <button class="chip ${S.days === 30 ? 'on' : ''}" data-days="30">近 30 個交易日</button>
   </div>
   <div class="chips">
-    <button class="chip ${S.metric === 'avg' ? 'on' : ''}" data-metric="avg">均價</button>
-    <button class="chip ${S.metric === 'qty' ? 'on' : ''}" data-metric="qty">交易量</button>
+    <button class="chip ${!S.focus ? 'on' : ''}" data-focus="">三市比較</button>
+    ${市場鈕}
+  </div>
+  <div class="chips">
+    ${指標清單().map(m => `<button class="chip ${S.metric === m.k ? 'on' : ''}"
+        data-metric="${m.k}">${m.n}</button>`).join('')}
   </div>`;
 
   if (!S.rows.length) {
     h += S.loading
       ? '<div class="empty">正在取得行情…</div>'
-      : `<div class="empty">${esc(S.crop.name)} 近 40 天沒有交易紀錄。<br>
+      : `<div class="empty">${esc(S.crop.name)} 近 ${FETCH_DAYS} 天沒有交易紀錄。<br>
            點上方作物名稱換一個，或到「設定」按重新整理。</div>`;
     box.innerHTML = h;
     綁定行情事件(box);
     return;
+  }
+
+  const 期 = 期間日期(rows);
+  if (期.length) {
+    const 跨 = Math.round(
+      (new Date(期[期.length - 1] + 'T00:00:00') - new Date(期[0] + 'T00:00:00')) / 864e5) + 1;
+    h += `<div class="rangeLine">資料範圍 <b>${月日(期[0])} – ${月日(期[期.length - 1])}</b>`
+       + `　${期.length} 個交易日，橫跨 ${跨} 天</div>`;
   }
 
   h += 走勢圖(rows);
@@ -616,6 +728,12 @@ function 綁定行情事件(box) {
     b.addEventListener('click', () => { S.days = +b.dataset.days; 畫面(); }));
   box.querySelectorAll('[data-metric]').forEach(b =>
     b.addEventListener('click', () => { S.metric = b.dataset.metric; 畫面(); }));
+  box.querySelectorAll('[data-focus]').forEach(b =>
+    b.addEventListener('click', () => {
+      S.focus = b.dataset.focus || null;
+      校正指標();
+      畫面();
+    }));
 }
 
 function 明細畫面() {
@@ -624,7 +742,7 @@ function 明細畫面() {
   if (!rows.length) { box.innerHTML = '<div class="empty">還沒有資料。</div>'; return; }
 
   const dates = 期間日期(rows).reverse();
-  let h = `<div class="notice calm">${esc(S.crop.name)}．近 ${S.days} 日，單位為元/公斤。
+  let h = `<div class="notice calm">${esc(S.crop.name)}．近 ${S.days} 個交易日，單位為元/公斤。
     上／中／下價分別是當日最貴 20%、中間 60%、最便宜 20% 交易量的平均。</div>`;
 
   dates.forEach(d => {
@@ -691,14 +809,16 @@ function 設定畫面() {
     <div class="setRow">
       <h3>${esc(S.crop.name)}</h3>
       <p>作物代號 ${esc(S.crop.code)}．共 <b>${S.rows.length}</b> 筆，涵蓋 <b>${天數}</b> 個交易日。<br>
-         最後更新：<b>${S.fetchedAt ? 時刻(S.fetchedAt) : '尚未更新'}</b></p>
+         手上最新資料：<b>${最新資料日() ? 月日(最新資料日()) : '—'}</b>
+         ${最新資料日() && 最新資料日() < 今天ISO() ? '（尚未取得今日）' : ''}<br>
+         最後抓取：<b>${S.fetchedAt ? 時刻(S.fetchedAt) : '尚未更新'}</b></p>
     </div>
     <button class="btn ghost wide" id="btnPickCrop">換一個作物</button>
 
     <div class="secTitle">顯示哪些市場（最多 ${MAX_MK} 個）</div>
     <div class="mkGrid">${市場鈕}</div>
     <div class="setRow">
-      <p>只列出這個作物近 40 天有交易的市場，依總交易量排序。換作物時會自動挑交易量前 ${MAX_MK} 大的。</p>
+      <p>只列出這個作物近 ${FETCH_DAYS} 天有交易的市場，依總交易量排序。換作物時會自動挑交易量前 ${MAX_MK} 大的。</p>
     </div>
 
     <div class="secTitle">怎麼看這些價格</div>
@@ -737,8 +857,17 @@ function 設定畫面() {
 
     <div class="secTitle">資料何時更新</div>
     <div class="setRow">
-      <p>行情站每日晚間約八點半更新前一日資料，一天只動一次。白天重複整理不會拿到新東西。<br>
-         部分市場週一休市。</p>
+      <p>行情站<b>當日下午</b>就會陸續發佈當天的成交資料，時間不固定，同一天可能補上多次。<br><br>
+         這支 App 的作法是：只要手上還沒有今天的資料，每次打開就重試一次（最短間隔 30 分鐘）；
+         已經拿到今天的資料就放慢，超過 6 小時才再抓。<br><br>
+         想立刻確認最新狀況，按上面的重新整理，一定會即時去抓。<br><br>
+         部分市場週一休市，遇國定假日也會停市。</p>
+    </div>
+    <div class="setRow">
+      <h3>「近 N 個交易日」不等於日曆天</h3>
+      <p>算的是<b>實際有成交的日子</b>，休市日不佔數。所以近 7 個交易日通常橫跨 8 到 9 個日曆天。<br><br>
+         這樣做是為了讓圖上永遠有固定數量的資料點；若改用日曆天，遇到連假那週會只剩四、五個點，胖瘦不一反而看不出趨勢。<br><br>
+         實際涵蓋的起訖日期就標在行情頁圖表上方。</p>
     </div>
 
     <div class="secTitle">維護</div>
@@ -780,6 +909,7 @@ function 設定畫面() {
       if (i >= 0) {
         if (S.markets.length === 1) { toast('至少要留一個市場'); return; }
         S.markets.splice(i, 1);
+        if (S.focus === mc) S.focus = null;
       } else {
         if (S.markets.length >= MAX_MK) { toast(`最多同時看 ${MAX_MK} 個市場`); return; }
         S.markets.push(mc);
@@ -889,16 +1019,12 @@ $('#cropBtn').addEventListener('click', 開啟作物選單);
   if (有快取) { 算市場排行(); 校正市場選擇(false); }
   畫面();                     // 先用快取畫出來，不讓使用者盯著空白
 
-  if (!有快取) {
-    更新(false, false);
-  } else if (Date.now() - new Date(S.fetchedAt || 0).getTime() > STALE_MS) {
-    更新(false, false);       // 快取過期才在背景重抓
-  }
+  if (需要更新()) 更新(false, false);
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible' || !S.fetchedAt) return;
-    if (Date.now() - new Date(S.fetchedAt).getTime() > STALE_MS) 更新(false, false);
+    if (document.visibilityState !== 'visible') return;
+    if (需要更新()) 更新(false, false);
   });
 })();
