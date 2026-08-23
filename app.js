@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.2.1
+/* 波波酪梨 · 農產品行情  app.js  v1.2.2
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -10,7 +10,7 @@
  */
 'use strict';
 
-const VERSION = 'v1.2.1';
+const VERSION = 'v1.2.2';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 40;          // 一次抓 40 天，7 日／30 日兩種檢視都不必重抓
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
@@ -696,7 +696,7 @@ function 設定畫面() {
     <button class="btn ghost wide" id="btnPickCrop">換一個作物</button>
 
     <div class="secTitle">顯示哪些市場（最多 ${MAX_MK} 個）</div>
-    <div class="chips wrap">${市場鈕}</div>
+    <div class="mkGrid">${市場鈕}</div>
     <div class="setRow">
       <p>只列出這個作物近 40 天有交易的市場，依總交易量排序。換作物時會自動挑交易量前 ${MAX_MK} 大的。</p>
     </div>
@@ -796,56 +796,79 @@ function 開啟作物選單() {
   確保作物清單();
 }
 
+/**
+ * 這張選單刻意只在「開啟時」建立一次外殼，之後只換清單內容。
+ * 原因：注音、拼音這類組字型輸入法在組字途中若把 <input> 砍掉重建，
+ * 組字緩衝區會再送出一次，畫面上就變成每個字都打兩遍。
+ * 英數沒有組字階段所以看不出問題——這個 bug 只有中文輸入才會踩到。
+ */
 function 作物選單() {
   const host = $('#sheetHost');
   if (S.sheet !== 'crop') { host.innerHTML = ''; return; }
+  if (host.querySelector('#sheetBg')) { 填作物清單(); return; }   // 已開著，只更新清單
+  建立作物選單(host);
+}
+
+function 清單HTML() {
+  if (S.listLoading) return '<div class="empty">正在取得作物清單…<br>第一次載入需要幾秒</div>';
+  if (S.listErr) return `<div class="notice" style="margin:12px">取不到清單：${esc(S.listErr)}</div>`;
 
   const q = S.q.trim();
   const list = q
     ? S.cropList.filter(c => c.name.indexOf(q) >= 0 || c.code.indexOf(q.toUpperCase()) >= 0)
     : S.cropList;
 
-  let body;
-  if (S.listLoading) {
-    body = '<div class="empty">正在取得作物清單…<br>第一次載入需要幾秒</div>';
-  } else if (S.listErr) {
-    body = `<div class="notice">取不到清單：${esc(S.listErr)}</div>`;
-  } else if (!list.length) {
-    body = '<div class="empty">找不到符合的作物</div>';
-  } else {
-    body = list.slice(0, 300).map(c => `
-      <button class="cropItem ${c.code === S.crop.code ? 'on' : ''}"
-              data-code="${esc(c.code)}" data-name="${esc(c.name)}">
-        <b>${esc(c.name)}</b><span>${esc(c.code)}　當日 ${公斤(c.qty)}</span>
-      </button>`).join('');
-  }
+  if (!list.length) return '<div class="empty">找不到符合的作物</div>';
 
+  return list.slice(0, 300).map(c => `
+    <button class="cropItem ${c.code === S.crop.code ? 'on' : ''}"
+            data-code="${esc(c.code)}" data-name="${esc(c.name)}">
+      <b>${esc(c.name)}</b><span>${esc(c.code)}　當日 ${公斤(c.qty)}</span>
+    </button>`).join('');
+}
+
+function 填作物清單() {
+  const box = $('#cropList');
+  if (!box) return;
+  box.innerHTML = 清單HTML();
+  box.querySelectorAll('[data-code]').forEach(b =>
+    b.addEventListener('click', () => 換作物(b.dataset.code, b.dataset.name)));
+}
+
+function 建立作物選單(host) {
   host.innerHTML = `<div class="sheet" id="sheetBg">
     <div class="sheetBody">
       <h2>選擇作物</h2>
       <p>依全台當日交易量排序，選好會記在這台裝置上。</p>
       <input class="field" id="cropQ" type="search" placeholder="搜尋作物名稱或代號"
-             value="${esc(S.q)}" autocomplete="off">
-      <div class="cropList">${body}</div>
-      <button class="btn ghost wide" id="sheetClose" style="margin-top:10px">關閉</button>
+             autocomplete="off" enterkeyhint="search">
+      <div class="cropList" id="cropList"></div>
+      <button class="btn ghost wide" id="sheetClose" style="margin-top:12px">關閉</button>
     </div>
   </div>`;
 
-  const 關 = () => { S.sheet = null; 畫面(); };
+  填作物清單();
+
+  const 關 = () => { S.sheet = null; S.q = ''; 畫面(); };
   $('#sheetClose').addEventListener('click', 關);
   $('#sheetBg').addEventListener('click', e => { if (e.target.id === 'sheetBg') 關(); });
 
   const qi = $('#cropQ');
-  qi.addEventListener('input', () => {
-    S.q = qi.value;
-    const pos = qi.selectionStart;
-    作物選單();                       // 只重畫這張表，不動底下的頁面
-    const n = $('#cropQ');
-    if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} }
-  });
+  qi.value = S.q;
 
-  host.querySelectorAll('[data-code]').forEach(b =>
-    b.addEventListener('click', () => 換作物(b.dataset.code, b.dataset.name)));
+  // 組字中（注音／拼音／手寫）不做任何事，等 compositionend 才過濾一次
+  let 組字中 = false;
+  qi.addEventListener('compositionstart', () => { 組字中 = true; });
+  qi.addEventListener('compositionend', () => {
+    組字中 = false;
+    S.q = qi.value;
+    填作物清單();
+  });
+  qi.addEventListener('input', e => {
+    if (組字中 || e.isComposing) return;
+    S.q = qi.value;
+    填作物清單();     // 只換清單，絕不碰 <input>
+  });
 }
 
 /* ── 分頁切換 ──────────────────────────────────────────── */
