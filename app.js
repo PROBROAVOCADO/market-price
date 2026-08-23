@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.1.0
+/* 波波酪梨 · 農產品行情  app.js  v1.2.0
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -6,16 +6,17 @@
  * 本 App 不經 GAS、不經 Firebase，完全獨立於訂單系統。
  *
  * v1.1.0：可自選作物與市場，選擇記在本機。
+ * v1.2.0：視覺改用訂購網站 style.css v8 的設計語彙。
  */
 'use strict';
 
-const VERSION = 'v1.1.0';
+const VERSION = 'v1.2.0';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 40;          // 一次抓 40 天，7 日／30 日兩種檢視都不必重抓
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
 
 const CROP_DEFAULT = { code: 'G3', name: '酪梨' };
-const SLOT = ['#6F9A46', '#6B563C', '#C08A2B'];
+const SLOT = ['#6F8A54', '#9A7E5D', '#3E4C33'];   // 主行動綠 / 暖褐棕 / 深墨綠
 
 const LS = {
   crop:   'probroMarketCrop',
@@ -371,9 +372,9 @@ function 走勢圖(rows) {
     const lab = S.metric === 'avg' ? 錢(v)
       : (v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v));
     g += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}"
-            stroke="#E4DED2" stroke-width="1"/>`;
+            stroke="#7A6449" stroke-opacity="0.16" stroke-width="1" stroke-dasharray="3 3"/>`;
     g += `<text x="${PL - 6}" y="${(y + 3.6).toFixed(1)}" text-anchor="end"
-            font-size="10" fill="#8A7C6C" font-weight="600">${lab}</text>`;
+            font-size="10" fill="#9A7E5D" font-weight="600">${lab}</text>`;
   }
 
   const 末 = dates.length - 1;
@@ -383,11 +384,11 @@ function 走勢圖(rows) {
   [...new Set(labIdx)].forEach(i => {
     const a = i === 0 ? 'start' : i === 末 ? 'end' : 'middle';
     g += `<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${a}"
-            font-size="10" fill="#8A7C6C" font-weight="600">${月日(dates[i])}</text>`;
+            font-size="10" fill="#9A7E5D" font-weight="600">${月日(dates[i])}</text>`;
   });
 
   g += `<line id="xh" x1="${X(末).toFixed(1)}" y1="${PT}" x2="${X(末).toFixed(1)}"
-          y2="${PT + ih}" stroke="#3E3226" stroke-width="1.5" opacity="0.28"/>`;
+          y2="${PT + ih}" stroke="#3E4C33" stroke-width="1.5" opacity="0.30"/>`;
 
   series.forEach(s => {
     const pl = [];
@@ -407,7 +408,7 @@ function 走勢圖(rows) {
 
   series.forEach(s => {
     g += `<circle class="xhDot" data-mc="${esc(s.mc)}" cx="0" cy="0" r="4"
-            fill="${s.color}" stroke="#FFF" stroke-width="1.8" opacity="0"/>`;
+            fill="${s.color}" stroke="#FAF7EF" stroke-width="2" opacity="0"/>`;
   });
 
   g += `<rect id="scrub" x="${PL}" y="0" width="${iw}" height="${H}" fill="transparent"/>`;
@@ -637,7 +638,7 @@ function 明細畫面() {
       if (!r) {
         h += `<div class="dRow" style="border-left-color:${色(i)}">
           <div class="dName">${nm}</div>
-          <div class="dNums" style="color:#B0A695">休市或無交易</div></div>`;
+          <div class="dNums" style="color:#9A7E5D;opacity:.6">休市或無交易</div></div>`;
         return;
       }
       h += `<div class="dRow" style="border-left-color:${色(i)}">
