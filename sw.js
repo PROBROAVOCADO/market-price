@@ -1,9 +1,9 @@
-/* 波波酪梨 · 酪梨行情  sw.js  v1.0.1
+/* 波波酪梨 · 酪梨行情  sw.js  v1.0.2
  * 改版時務必更新 CACHE 名稱，否則舊快取不會被淘汰。
  * 快取名稱刻意用 probro-market- 前綴，與出貨通知的 probro-ship- 區隔，
  * 兩支 App 部署在同一個網域底下也不會互相清掉對方的快取。
  */
-const CACHE = 'probro-market-v1.0.1';
+const CACHE = 'probro-market-v1.0.2';
 
 const ASSETS = [
   './', './index.html', './app.js', './manifest.json',
