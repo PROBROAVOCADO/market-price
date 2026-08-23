@@ -1,4 +1,4 @@
-/* 波波酪梨 · 酪梨行情  app.js  v1.0.1
+/* 波波酪梨 · 酪梨行情  app.js  v1.0.2
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -7,7 +7,7 @@
  */
 'use strict';
 
-const VERSION   = 'v1.0.1';
+const VERSION   = 'v1.0.2';
 const API       = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const CROP_NAME = '酪梨';   // 查詢用：實測可正常過濾
 const CROP_CODE = 'G3';     // 本地過濾用：排除 G39 進口，以及 CropCode 為 "-" 的休市列
@@ -32,7 +32,8 @@ const S = {
   days: 7,           // 7 或 30
   metric: 'avg',     // 'avg' 均價 ｜ 'qty' 交易量
   loading: false,
-  err: ''
+  err: '',
+  chart: null
 };
 
 /* ── 小工具 ────────────────────────────────────────────── */
@@ -198,6 +199,16 @@ function 加權均價(rows) {
 }
 
 /* ── 走勢圖 ────────────────────────────────────────────── */
+
+/** 把座標軸切成好讀的刻度：40/50/60，而不是 42.4/47.7/53.1 */
+function 好刻度(range, 目標段數) {
+  const raw = range / 目標段數;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / mag;
+  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+  return step * mag;
+}
+
 function 走勢圖(rows) {
   const dates = 期間日期(rows);
   if (dates.length < 2) return '<div class="empty">這個期間的資料還不足以畫出走勢</div>';
@@ -215,7 +226,8 @@ function 走勢圖(rows) {
     return { m, pts };
   });
 
-  const W = 340, H = 168, PL = 42, PR = 10, PT = 12, PB = 24;
+  // PR 要留得下最右邊的日期標籤；首尾標籤改成靠邊對齊，就不會溢出畫布
+  const W = 340, H = 172, PL = 40, PR = 14, PT = 12, PB = 26;
   const iw = W - PL - PR, ih = H - PT - PB;
 
   let lo = Infinity, hi = -Infinity;
@@ -226,71 +238,148 @@ function 走勢圖(rows) {
   }));
   if (!isFinite(lo)) return '<div class="empty">這個期間沒有交易資料</div>';
 
-  if (S.metric === 'qty') { lo = 0; }
+  if (S.metric === 'qty') lo = 0;
   if (lo === hi) { lo = lo * 0.9; hi = hi * 1.1 || 1; }
-  const pad = (hi - lo) * 0.10;
-  hi += pad;
-  if (S.metric === 'avg') lo -= pad;
+
+  const step = 好刻度(hi - lo || 1, 4);
+  lo = Math.floor(lo / step) * step;
+  hi = Math.ceil(hi / step) * step;
+  if (hi === lo) hi = lo + step;
   if (lo < 0) lo = 0;
 
   const X = i => PL + (dates.length <= 1 ? iw / 2 : iw * i / (dates.length - 1));
   const Y = v => PT + ih * (1 - (v - lo) / (hi - lo));
 
   let g = '';
-  const TICKS = 4;
-  for (let i = 0; i <= TICKS; i++) {
-    const v = lo + (hi - lo) * i / TICKS;
+
+  for (let v = lo; v <= hi + 1e-9; v += step) {
     const y = Y(v);
-    const lab = S.metric === 'avg' ? 錢(v) : (v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v));
+    const lab = S.metric === 'avg'
+      ? 錢(v)
+      : (v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v));
     g += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}"
             stroke="#E4DED2" stroke-width="1"/>`;
     g += `<text x="${PL - 6}" y="${(y + 3.6).toFixed(1)}" text-anchor="end"
             font-size="10" fill="#8A7C6C" font-weight="600">${lab}</text>`;
   }
 
+  const 末 = dates.length - 1;
   const labIdx = dates.length <= 4
     ? dates.map((_, i) => i)
-    : [0, Math.round((dates.length - 1) / 3), Math.round((dates.length - 1) * 2 / 3), dates.length - 1];
+    : [0, Math.round(末 / 3), Math.round(末 * 2 / 3), 末];
   [...new Set(labIdx)].forEach(i => {
-    g += `<text x="${X(i).toFixed(1)}" y="${H - 7}" text-anchor="middle"
+    const anchor = i === 0 ? 'start' : i === 末 ? 'end' : 'middle';
+    g += `<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${anchor}"
             font-size="10" fill="#8A7C6C" font-weight="600">${月日(dates[i])}</text>`;
   });
 
+  // 讀數游標：先畫，讓折線壓在上面
+  g += `<line id="xh" x1="${X(末).toFixed(1)}" y1="${PT}" x2="${X(末).toFixed(1)}"
+          y2="${PT + ih}" stroke="#3E3226" stroke-width="1.5" opacity="0.28"/>`;
+
   series.forEach(s => {
-    const seg = [];
-    let cur = [];
+    const pl = [];
     s.pts.forEach((v, i) => {
-      if (v == null) return;          // 該市場當天休市 → 直接跨過，線接續
-      cur.push(`${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
+      if (v == null) return;        // 該市場當天休市 → 跨過，線接續
+      pl.push(`${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
     });
-    if (cur.length) seg.push(cur);
-    seg.forEach(pl => {
-      if (pl.length === 1) {
-        const [x, y] = pl[0].split(',');
-        g += `<circle cx="${x}" cy="${y}" r="3" fill="${s.m.color}"/>`;
-      } else {
-        g += `<polyline points="${pl.join(' ')}" fill="none" stroke="${s.m.color}"
-                stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
-      }
-    });
-    // 最新一點加圓點，方便一眼找到當前位置
-    for (let i = s.pts.length - 1; i >= 0; i--) {
-      if (s.pts[i] != null) {
-        g += `<circle cx="${X(i).toFixed(1)}" cy="${Y(s.pts[i]).toFixed(1)}" r="3.4"
-                fill="${s.m.color}" stroke="#FFF" stroke-width="1.6"/>`;
-        break;
-      }
+    if (!pl.length) return;
+    if (pl.length === 1) {
+      const [x, y] = pl[0].split(',');
+      g += `<circle cx="${x}" cy="${y}" r="3" fill="${s.m.color}"/>`;
+    } else {
+      g += `<polyline points="${pl.join(' ')}" fill="none" stroke="${s.m.color}"
+              stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
     }
   });
 
-  const legend = MARKETS.map(m =>
-    `<span><i style="background:${m.color}"></i>${m.name}</span>`).join('');
+  // 游標上的圓點，位置由 更新讀數() 控制
+  series.forEach(s => {
+    g += `<circle class="xhDot" data-mc="${s.m.code}" cx="0" cy="0" r="4"
+            fill="${s.m.color}" stroke="#FFF" stroke-width="1.8" opacity="0"/>`;
+  });
+
+  // 透明感應區，蓋在繪圖範圍上收手勢
+  g += `<rect id="scrub" x="${PL}" y="0" width="${iw}" height="${H}" fill="transparent"/>`;
+
+  S.chart = { dates, series, PL, iw, W, PT, ih, X, Y, 末 };
 
   return `<div class="chartBox">
-    <svg viewBox="0 0 ${W} ${H}" role="img"
+    <svg id="chart" viewBox="0 0 ${W} ${H}" role="img"
          aria-label="${S.metric === 'avg' ? '三市場均價走勢' : '三市場交易量走勢'}">${g}</svg>
-    <div class="legend">${legend}</div>
+    <div class="readout" id="readout"></div>
+    <div class="hintLine">按住圖表左右滑動，可查看各日數字</div>
   </div>`;
+}
+
+/** 更新圖表下方的讀數列，並把游標移到第 i 天 */
+function 更新讀數(i) {
+  const c = S.chart;
+  if (!c) return;
+  i = Math.max(0, Math.min(c.末, i));
+
+  const xh = document.getElementById('xh');
+  if (xh) {
+    const x = c.X(i).toFixed(1);
+    xh.setAttribute('x1', x);
+    xh.setAttribute('x2', x);
+  }
+
+  document.querySelectorAll('.xhDot').forEach(el => {
+    const s = c.series.find(x => x.m.code === el.dataset.mc);
+    const v = s ? s.pts[i] : null;
+    if (v == null) { el.setAttribute('opacity', '0'); return; }
+    el.setAttribute('cx', c.X(i).toFixed(1));
+    el.setAttribute('cy', c.Y(v).toFixed(1));
+    el.setAttribute('opacity', '1');
+  });
+
+  const box = document.getElementById('readout');
+  if (!box) return;
+  const d = c.dates[i];
+  const vals = c.series.map(s => {
+    const v = s.pts[i];
+    const txt = v == null ? '休市'
+      : S.metric === 'avg' ? 錢(v) : 公斤(v);
+    return `<span class="${v == null ? 'off' : ''}">
+      <i style="background:${s.m.color}"></i>${s.m.name} <b class="num">${txt}</b></span>`;
+  }).join('');
+
+  box.innerHTML = `<div class="roDate">${月日(d)}（${週(d)}）
+      <span class="roUnit">${S.metric === 'avg' ? '元/公斤' : '交易量'}</span></div>
+    <div class="roVals">${vals}</div>`;
+}
+
+/** 綁定滑動讀數。SVG 會隨容器縮放，所以要用 getBoundingClientRect 換算回 viewBox 座標 */
+function 綁定走勢圖() {
+  const svg = document.getElementById('chart');
+  const hit = document.getElementById('scrub');
+  const c = S.chart;
+  if (!svg || !hit || !c) return;
+
+  更新讀數(c.末);          // 預設停在最新一天
+
+  let 拖曳中 = false;
+
+  const 取索引 = e => {
+    const r = svg.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width * c.W;
+    const t = (x - c.PL) / c.iw;
+    return Math.round(t * c.末);
+  };
+
+  const 開始 = e => {
+    拖曳中 = true;
+    hit.setPointerCapture && hit.setPointerCapture(e.pointerId);
+    更新讀數(取索引(e));
+  };
+  const 移動 = e => { if (拖曳中) { e.preventDefault(); 更新讀數(取索引(e)); } };
+  const 結束 = () => { 拖曳中 = false; };
+
+  hit.addEventListener('pointerdown', 開始);
+  hit.addEventListener('pointermove', 移動);
+  hit.addEventListener('pointerup', 結束);
+  hit.addEventListener('pointercancel', 結束);
 }
 
 /* ── 市場卡（價格帶） ──────────────────────────────────── */
@@ -404,11 +493,13 @@ function 行情畫面() {
   MARKETS.forEach(m => { h += 市場卡(m, rows); });
 
   box.innerHTML = h;
+  綁定走勢圖();
 
   box.querySelectorAll('[data-days]').forEach(b =>
     b.addEventListener('click', () => { S.days = +b.dataset.days; 畫面(); }));
   box.querySelectorAll('[data-metric]').forEach(b =>
     b.addEventListener('click', () => { S.metric = b.dataset.metric; 畫面(); }));
+
 }
 
 function 明細畫面() {
