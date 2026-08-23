@@ -17,7 +17,6 @@
   --leaf:#6F9A46; --leaf-dark:#5A7F38; --bark:#6B563C;
   --alert:#B3261E; --alert-bg:#FBEDEA; --done:#B0A695;
   --up:#B3261E; --down:#4A7A3C;
-  --m109:#6F9A46; --m104:#6B563C; --m241:#C08A2B;
   --tap:60px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -103,9 +102,6 @@ nav#tabs button[aria-current="true"]{color:var(--leaf);font-weight:700}
 /* 市場卡 */
 .mk{background:var(--paper);border:1px solid var(--line);border-left:5px solid var(--line);
   border-radius:14px;padding:12px 14px;margin-bottom:9px}
-.mk.m109{border-left-color:var(--m109)}
-.mk.m104{border-left-color:var(--m104)}
-.mk.m241{border-left-color:var(--m241)}
 .mkHead{display:flex;align-items:baseline;gap:8px}
 .mkName{font-size:19px;font-weight:800;letter-spacing:.04em}
 .mkDate{margin-left:auto;font-size:13px;color:var(--muted);white-space:nowrap}
@@ -153,9 +149,6 @@ nav#tabs button[aria-current="true"]{color:var(--leaf);font-weight:700}
 .dRow{display:flex;align-items:center;gap:8px;background:var(--paper);
   border:1px solid var(--line);border-left:4px solid var(--line);
   border-radius:11px;padding:8px 11px;margin-bottom:5px}
-.dRow.m109{border-left-color:var(--m109)}
-.dRow.m104{border-left-color:var(--m104)}
-.dRow.m241{border-left-color:var(--m241)}
 .dName{flex:none;width:52px;font-size:14px;font-weight:700}
 .dNums{flex:1;display:flex;gap:9px;font-size:13.5px;color:var(--muted);
   font-variant-numeric:tabular-nums}
@@ -168,6 +161,43 @@ nav#tabs button[aria-current="true"]{color:var(--leaf);font-weight:700}
 .setRow h3{margin:0 0 4px;font-size:15px;font-weight:800}
 .setRow p{margin:0;font-size:13.5px;color:var(--muted);line-height:1.55}
 .setRow p b{color:var(--ink)}
+
+
+/* 作物切換鈕 */
+.cropBtn{display:inline-flex;align-items:center;gap:4px;
+  min-height:30px;padding:0 11px;border-radius:15px;
+  background:var(--leaf);color:#fff;font-size:14px;font-weight:700;letter-spacing:.03em}
+.cropBtn:active{background:var(--leaf-dark)}
+.cropBtn .caret{font-size:10px;opacity:.85}
+
+.chips.wrap{flex-wrap:wrap;overflow:visible;margin-bottom:12px;row-gap:7px}
+
+/* 底部選單 */
+.sheet{position:fixed;inset:0;z-index:60;background:rgba(62,50,38,.5);
+  display:flex;align-items:flex-end}
+.sheetBody{background:var(--cream);width:100%;border-radius:20px 20px 0 0;
+  padding:18px 16px calc(16px + env(safe-area-inset-bottom));max-height:86%;
+  overflow-y:auto;-webkit-overflow-scrolling:touch}
+.sheetBody h2{margin:0 0 3px;font-size:19px}
+.sheetBody p{margin:0 0 12px;color:var(--muted);font-size:13.5px}
+.field{width:100%;min-height:48px;padding:11px 14px;border:1px solid var(--line);
+  border-radius:12px;background:var(--paper);margin-bottom:10px}
+.field:focus{outline:2px solid var(--leaf);outline-offset:-1px}
+
+.cropList{max-height:46vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  border:1px solid var(--line);border-radius:12px;background:var(--paper)}
+.cropItem{display:flex;align-items:baseline;gap:9px;width:100%;text-align:left;
+  padding:11px 13px;border-bottom:1px solid var(--wash)}
+.cropItem:last-child{border-bottom:0}
+.cropItem:active{background:var(--wash)}
+.cropItem b{font-size:16px;font-weight:700}
+.cropItem span{margin-left:auto;font-size:12px;color:var(--muted);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.cropItem.on{background:var(--wash)}
+.cropItem.on b{color:var(--leaf)}
+
+.setRow.disclaimer{background:var(--wash);border-color:var(--line)}
+.setRow.disclaimer h3{color:var(--bark)}
 
 #toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);
   background:var(--ink);color:#fff;padding:11px 17px;border-radius:11px;
@@ -182,7 +212,8 @@ nav#tabs button[aria-current="true"]{color:var(--leaf);font-weight:700}
 
   <section id="s-price" class="screen">
     <div class="topbar">
-      <h1>酪梨行情</h1>
+      <h1>行情</h1>
+      <button class="cropBtn" id="cropBtn">酪梨<span class="caret">▾</span></button>
       <div class="stamp" id="stamp">載入中…</div>
     </div>
     <div id="priceBody"></div>
@@ -217,6 +248,7 @@ nav#tabs button[aria-current="true"]{color:var(--leaf);font-weight:700}
   </nav>
 </div>
 
+<div id="sheetHost"></div>
 <div id="toast"></div>
 <script src="app.js"></script>
 </body>
