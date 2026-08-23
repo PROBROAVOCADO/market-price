@@ -150,6 +150,16 @@ nav#tabs button[aria-current="true"]{color:var(--herb-green);opacity:1;font-weig
 .chip.on{background:var(--herb-green);border-color:var(--herb-green);color:var(--creamy)}
 .chip.on .num{opacity:.9}
 
+
+/* 市場選擇：兩欄等寬，名稱靠左、數量靠右，右緣才會切齊 */
+.mkGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.mkGrid .chip{
+  width:100%;min-height:44px;padding:0 14px;
+  justify-content:space-between;gap:8px;
+}
+.mkGrid .chip .num{flex:none;font-size:.68rem}
+.mkGrid .empty{grid-column:1 / -1}
+
 /* 卡片：紙色 + 顆粒紙紋 + 細框線 */
 .card,.mk,.chartBox,.setRow,.bandLegend{
   background-color:var(--creamy);
