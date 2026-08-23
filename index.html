@@ -85,12 +85,20 @@ nav#tabs button[aria-current="true"]{color:var(--leaf);font-weight:700}
 .secTitle{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.12em;
   margin:20px 2px 8px}
 .chartBox{background:var(--paper);border:1px solid var(--line);border-radius:14px;
-  padding:10px 8px 6px;margin-bottom:6px}
-.chartBox svg{display:block;width:100%;height:auto}
-.legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:2px 8px 6px;
-  font-size:12.5px;color:var(--muted);font-weight:600}
-.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;
-  margin-right:5px;vertical-align:middle}
+  padding:10px 8px 8px;margin-bottom:6px}
+.chartBox svg{display:block;width:100%;height:auto;touch-action:pan-y}
+#scrub{cursor:ew-resize}
+.readout{border-top:1px solid var(--line);margin:6px 6px 0;padding-top:8px}
+.roDate{font-size:13px;font-weight:800;color:var(--ink);letter-spacing:.04em;
+  display:flex;align-items:baseline}
+.roUnit{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--muted);letter-spacing:0}
+.roVals{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:5px;
+  font-size:13px;color:var(--muted);font-weight:600}
+.roVals b{color:var(--ink);font-weight:800;font-size:14.5px}
+.roVals .off b{color:var(--done);font-weight:600;font-size:13px}
+.roVals i{display:inline-block;width:9px;height:9px;border-radius:50%;
+  margin-right:5px;vertical-align:baseline}
+.hintLine{font-size:11.5px;color:var(--done);margin:7px 6px 0;text-align:center}
 
 /* 市場卡 */
 .mk{background:var(--paper);border:1px solid var(--line);border-left:5px solid var(--line);
