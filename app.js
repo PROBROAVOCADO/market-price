@@ -1,4 +1,4 @@
-/* 波波酪梨 · 酪梨行情  app.js  v1.0.2
+/* 波波酪梨 · 酪梨行情  app.js  v1.0.3
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -7,7 +7,7 @@
  */
 'use strict';
 
-const VERSION   = 'v1.0.2';
+const VERSION   = 'v1.0.3';
 const API       = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const CROP_NAME = '酪梨';   // 查詢用：實測可正常過濾
 const CROP_CODE = 'G3';     // 本地過濾用：排除 G39 進口，以及 CropCode 為 "-" 的休市列
@@ -423,10 +423,12 @@ function 市場卡(m, rows) {
     </div>
 
     <div class="band">
-      <div class="bandBar">
-        <div class="bandFill" style="left:0;right:0;background:${m.color}"></div>
-        <div class="bandMid" style="left:${pos(last.mid).toFixed(1)}%"></div>
-        <div class="bandAvg" style="left:${pos(last.avg).toFixed(1)}%;background:${m.color}"></div>
+      <div class="bandWrap">
+        <div class="bandBar">
+          <div class="bandFill" style="background:${m.color}"></div>
+          <div class="bandMid" style="left:${pos(last.mid).toFixed(1)}%"></div>
+        </div>
+        <div class="bandAvg" style="left:${pos(last.avg).toFixed(1)}%;color:${m.color}"></div>
       </div>
       <div class="bandTicks">
         <span>下 ${錢(last.low)}</span>
@@ -490,6 +492,11 @@ function 行情畫面() {
 
   h += 走勢圖(rows);
   h += '<div class="secTitle">最新一個交易日</div>';
+  h += `<div class="bandLegend">
+    <div class="blRow"><span class="blBar"></span>橫條＝當日成交區間，左端下價、右端上價</div>
+    <div class="blRow"><span class="blSym"><i class="blTri"></i></span>均價（即上方大字）</div>
+    <div class="blRow"><span class="blSym"><i class="blLine"></i></span>中價</div>
+  </div>`;
   MARKETS.forEach(m => { h += 市場卡(m, rows); });
 
   box.innerHTML = h;
@@ -548,6 +555,17 @@ function 設定畫面() {
   const box = $('#setupBody');
   const 天數 = 期間日期(S.rows).length;
 
+  // 用最新一筆真實資料現場驗算，比寫死的例子可信，也不會過期
+  let 範例 = '';
+  const 樣 = S.rows.filter(r => r.mc === '109').pop() || S.rows[S.rows.length - 1];
+  if (樣) {
+    const 算 = 0.2 * 樣.up + 0.6 * 樣.mid + 0.2 * 樣.low;
+    範例 = `<br><br>拿 ${月日(樣.d)} ${MK[樣.mc].name} 實際驗算：<br>`
+         + `0.2×${錢(樣.up)} ＋ 0.6×${錢(樣.mid)} ＋ 0.2×${錢(樣.low)} ＝ `
+         + `<b>${(Math.round(算 * 100) / 100)}</b><br>`
+         + `行情站給的均價：<b>${錢(樣.avg)}</b>`;
+  }
+
   box.innerHTML = `
     <button class="btn wide" id="btnReload" ${S.loading ? 'disabled' : ''}>
       ${S.loading ? '更新中…' : '重新整理'}
@@ -567,30 +585,35 @@ function 設定畫面() {
     <div class="secTitle">怎麼看這些價格</div>
     <div class="setRow">
       <h3>上價、中價、下價</h3>
-      <p>把當天所有成交由貴排到便宜，切成三段，每段各自算平均。<br>
-         <b>上價</b>＝最貴那段　<b>中價</b>＝中間那段　<b>下價</b>＝最便宜那段</p>
+      <p>把當天所有成交依價格由高排到低，再依<b>交易量</b>切成三段，每段各自算平均：<br><br>
+         <b>上價</b>　最貴的 <b>20%</b> 交易量的平均<br>
+         <b>中價</b>　中間的 <b>60%</b> 交易量的平均<br>
+         <b>下價</b>　最便宜的 <b>20%</b> 交易量的平均</p>
     </div>
     <div class="setRow">
-      <h3>均價＝總金額 ÷ 總重量</h3>
-      <p>當天那個市場的酪梨，平均一公斤賣多少錢。</p>
+      <h3>比例固定，跟當天進什麼貨無關</h3>
+      <p>永遠是 20／60／20，不會因為今天好貨多就變成別的比例。<br><br>
+         所以<b>上價不等於「優級的價格」</b>，而是「當天最貴那兩成的價格，不管它是什麼等級」。分級高的通常拍得高，但那是結果，不是定義。</p>
     </div>
     <div class="setRow">
-      <h3>均價會被「量」拉著走</h3>
-      <p>所以它不等於（上＋中＋下）÷ 3。誰的量大，誰就把均價拉過去。<br><br>
-         假設今天有一車 8,000 公斤的貨賣 30 元，另外 500 公斤好貨賣 70 元：<br>
-         · <b>均價約 32 元</b> — 被那 8,000 公斤壓下來<br>
-         · <b>中價可能還在 45 元</b> — 它只看價位排在中間，不管量多少<br><br>
-         兩個數字差很多，但都沒錯，只是在回答不同的問題。</p>
+      <h3>均價＝0.2×上 ＋ 0.6×中 ＋ 0.2×下</h3>
+      <p>因為三段的比例固定，均價就是這三個數字按 20／60／20 加權後的結果，也等於當天的總金額 ÷ 總重量。${範例}</p>
+    </div>
+    <div class="setRow">
+      <h3>所以均價不是三者相加除以三</h3>
+      <p>中價一個人就佔了六成的權重，上價和下價各只有兩成。<br><br>
+         這也是為什麼均價通常會貼著中價跑——均價只是多把頭尾兩成拉進來，被兩端稍微拉扯而已。</p>
     </div>
     <div class="setRow">
       <h3>那該看哪一個</h3>
-      <p><b>均價</b>：整個市場今天實際的成交水準。<br>
-         <b>中價</b>：撇開特別便宜和特別貴的貨之後，一般貨的價位。</p>
+      <p><b>中價</b>　涵蓋六成的量，最接近「一般貨」的行情，比較穩，適合看趨勢。<br><br>
+         <b>均價</b>　含頭尾的完整成交水準，會被異常進貨拉動。<br><br>
+         <b>兩者的差距</b>　差得越開，代表當天頭尾兩端越極端。可以當成異常偵測。</p>
     </div>
     <div class="setRow">
-      <h3>「近 N 日均價」也是同一套算法</h3>
-      <p>把這幾天的總金額加起來，除以總重量。<br>
-         不是把每天的均價再平均一次——那樣的話，只成交 300 公斤的冷門日，會跟成交 2 萬公斤的主力日一樣重要。</p>
+      <h3>「近 N 日均價」是另一層加權</h3>
+      <p>那是把這幾天的總金額加起來除以總重量，加權的對象是<b>日期</b>，跟上面的 20／60／20 是不同層次的事。<br><br>
+         不這樣算的話，只成交 300 公斤的冷門日，會跟成交 2 萬公斤的主力日一樣重要。</p>
     </div>
 
     <div class="secTitle">收錄範圍</div>
