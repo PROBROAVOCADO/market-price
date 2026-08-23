@@ -1,17 +1,32 @@
 {
-  "name": "波波酪梨 · 酪梨行情",
-  "short_name": "酪梨行情",
-  "description": "台北一、台北二、三重區的國產酪梨批發行情與交易量",
+  "name": "波波酪梨 · 農產行情",
+  "short_name": "農產行情",
+  "description": "台灣批發市場的每日行情、價格帶與交易量",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#F7F4EE",
-  "theme_color": "#F7F4EE",
+  "background_color": "#EDE8DA",
+  "theme_color": "#EDE8DA",
   "lang": "zh-Hant",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
