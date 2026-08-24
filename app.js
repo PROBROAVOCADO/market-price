@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農漁產品行情  app.js  v1.8.1
+/* 波波酪梨 · 農漁產品行情  app.js  v1.8.2
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」與「漁產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -13,10 +13,11 @@
  * v1.7.0：加入「隨喜支持」說明與 LINE 好友導流。
  * v1.8.0：加入水果／蔬菜／漁產雙層選單、漁產品行情與啟動更新摘要。
  * v1.8.1：調整部分文字說明。
+ * v1.8.2：第二層品項加入名稱／代碼搜尋，選項同步顯示品項代碼。
  */
 'use strict';
 
-const VERSION = 'v1.8.1';
+const VERSION = 'v1.8.2';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FISH_API = 'https://data.moa.gov.tw/Service/OpenData/FromM/AquaticTransData.aspx';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
@@ -1355,16 +1356,16 @@ function 建立版本選單(host) {
       <p class="releaseHello">風一吹，園裡又冒出幾個新芽<br>這是最近三次耕耘的小小收成🌱</p>
       <div class="releaseList">
         <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.8.1</span><span class="releaseSeason">本次收成</span></div>
+          <div class="releaseHead"><span class="releaseVer">v1.8.2</span><span class="releaseSeason">本次收成</span></div>
+          <p>第二層品項新增名稱／代碼搜尋，輸入「酪梨」或「G3」都能快速找到。</p>
+        </article>
+        <article class="releaseItem">
+          <div class="releaseHead"><span class="releaseVer">v1.8.1</span><span class="releaseSeason">上一季</span></div>
           <p>水果、蔬菜、漁產分畦排好，先挑大類再選品項；🐟魚市場行情也一起開張啦！</p>
         </article>
         <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.7.0</span><span class="releaseSeason">上一季</span></div>
+          <div class="releaseHead"><span class="releaseVer">v1.7.0</span><span class="releaseSeason">前一季</span></div>
           <p>新增「支持按鈕」，若小工具幫上忙，歡迎透過 LINE 請小農喝杯咖啡☕</p>
-        </article>
-        <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.6.0</span><span class="releaseSeason">前一季</span></div>
-          <p>重新翻鬆整片色票，數字更清楚、日曬下看行情也更省眼力。</p>
         </article>
       </div>
       <button class="btn wide" id="releaseClose">🚚 好，去逛今天的行情</button>
@@ -1398,35 +1399,71 @@ function 建立支持選單(host) {
   $('#supportBg').addEventListener('click', e => { if (e.target.id === 'supportBg') 關(); });
 }
 
+function 作物搜尋鍵(value) {
+  let key = String(value == null ? '' : value);
+  try { key = key.normalize('NFKC'); } catch (e) { /* 舊瀏覽器照原字串搜尋 */ }
+  return key.trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function 符合搜尋的作物() {
+  const q = 作物搜尋鍵(S.q);
+  if (!q) return S.cropList.slice();
+  return S.cropList.filter(c =>
+    作物搜尋鍵(c.code).includes(q) || 作物搜尋鍵(c.name).includes(q));
+}
+
 function 填作物清單() {
   const cat = $('#categoryPick');
+  const search = $('#itemSearch');
   const item = $('#itemPick');
   const help = $('#pickHelp');
   const go = $('#pickGo');
-  if (!cat || !item || !help || !go) return;
+  if (!cat || !search || !item || !help || !go) return;
   cat.value = S.pickCategory;
+  if (search.value !== S.q) search.value = S.q;
   if (S.listLoading) {
     item.innerHTML = '<option value="">正在採收清單，請稍候…</option>';
-    item.disabled = true; go.disabled = true;
+    search.disabled = true; item.disabled = true; go.disabled = true;
     help.textContent = '第一次載入這個大類，可能需要幾秒。';
     return;
   }
   if (S.listErr) {
     item.innerHTML = '<option value="">暫時取不到品項</option>';
-    item.disabled = true; go.disabled = true;
+    search.disabled = true; item.disabled = true; go.disabled = true;
     help.textContent = S.listErr;
     return;
   }
-  const options = S.cropList.map(c =>
-    `<option value="${esc(c.code)}" data-name="${esc(c.name)}">${esc(c.name)}　${公斤(c.qty)}</option>`).join('');
-  item.innerHTML = '<option value="">請選擇品項</option>' + options;
-  const same = S.pickCategory === S.category && S.cropList.some(c => c.code === S.crop.code);
-  if (same) item.value = S.crop.code;
-  item.disabled = !S.cropList.length;
+  search.disabled = !S.cropList.length;
+
+  const previous = item.value;
+  const found = 符合搜尋的作物();
+  const options = found.map(c =>
+    `<option value="${esc(c.code)}" data-name="${esc(c.name)}">${esc(c.code)}｜${esc(c.name)}　${公斤(c.qty)}</option>`).join('');
+  item.innerHTML = `<option value="">${S.q ? '請選擇符合品項' : '請選擇品項'}</option>` + options;
+
+  const q = 作物搜尋鍵(S.q);
+  const exact = q && found.find(c =>
+    作物搜尋鍵(c.code) === q || 作物搜尋鍵(c.name) === q);
+  const only = q && found.length === 1 ? found[0] : null;
+  const samePrevious = found.some(c => c.code === previous) ? previous : '';
+  const sameCurrent = S.pickCategory === S.category && found.some(c => c.code === S.crop.code)
+    ? S.crop.code : '';
+  item.value = (exact || only || {}).code || samePrevious || sameCurrent;
+
+  item.disabled = !found.length;
   go.disabled = !item.value;
-  help.textContent = S.cropList.length
-    ? `依最近交易日總量排序，共 ${S.cropList.length} 個品項。`
-    : '這個大類最近沒有交易品項。';
+  if (S.q && found.length) {
+    const chosen = found.find(c => c.code === item.value);
+    help.textContent = chosen
+      ? `已選取 ${chosen.code}｜${chosen.name}；按 Enter 可直接查看。`
+      : `找到 ${found.length} 個品項，請從下拉選單挑一個。`;
+  } else if (S.q) {
+    help.textContent = `找不到「${S.q}」，請換個名稱、代碼或確認大類。`;
+  } else {
+    help.textContent = S.cropList.length
+      ? `可輸入名稱或代碼搜尋；依最近交易日總量排序，共 ${S.cropList.length} 個品項。`
+      : '這個大類最近沒有交易品項。';
+  }
 }
 
 function 建立作物選單(host) {
@@ -1438,8 +1475,11 @@ function 建立作物選單(host) {
       <select class="field pickField" id="categoryPick">
         ${Object.keys(CATEGORY).map(k => `<option value="${k}">${CATEGORY[k].name}</option>`).join('')}
       </select>
-      <label class="fieldLabel" for="itemPick">第二步・品項</label>
-      <select class="field pickField" id="itemPick"></select>
+      <label class="fieldLabel" for="itemSearch">第二步・搜尋名稱或代碼</label>
+      <input class="field itemSearchField" id="itemSearch" type="search"
+        placeholder="例如：酪梨、G3" autocomplete="off" autocapitalize="characters"
+        spellcheck="false" enterkeyhint="search" aria-describedby="pickHelp">
+      <select class="field pickField" id="itemPick" aria-label="符合搜尋的品項"></select>
       <div class="pickHelp" id="pickHelp"></div>
       <button class="btn wide" id="pickGo" disabled>查看這個品項</button>
       <button class="btn ghost wide" id="sheetClose" style="margin-top:12px">關閉</button>
@@ -1453,9 +1493,21 @@ function 建立作物選單(host) {
   $('#sheetBg').addEventListener('click', e => { if (e.target.id === 'sheetBg') 關(); });
   $('#categoryPick').addEventListener('change', e => {
     S.pickCategory = e.target.value;
-    S.cropList = []; S.listErr = '';
+    S.q = ''; S.cropList = []; S.listErr = '';
     填作物清單();
     確保作物清單(S.pickCategory);
+  });
+  let composing = false;
+  const search = $('#itemSearch');
+  const 套用搜尋 = () => { S.q = search.value; 填作物清單(); };
+  search.addEventListener('compositionstart', () => { composing = true; });
+  search.addEventListener('compositionend', () => { composing = false; 套用搜尋(); });
+  search.addEventListener('input', e => { if (!composing && !e.isComposing) 套用搜尋(); });
+  search.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if ($('#itemPick').value) $('#pickGo').click();
+    else toast('請先輸入正確的名稱或代碼');
   });
   $('#itemPick').addEventListener('change', e => { $('#pickGo').disabled = !e.target.value; });
   $('#pickGo').addEventListener('click', () => {
