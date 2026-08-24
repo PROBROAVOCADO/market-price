@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.5.2
+/* 波波酪梨 · 農產品行情  app.js  v1.6.0
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -8,10 +8,11 @@
  * v1.1.0：可自選作物與市場，選擇記在本機。
  * v1.2.0：視覺改用訂購網站 style.css v8 的設計語彙。
  * v1.4.0：補上 Page/Next 分頁處理（先前只讀第一頁，資料會被安靜截斷）。
+ * v1.6.0：色票重整。原本數字的對比只有 3.56:1（全畫面最弱），現為 6.00:1。
  */
 'use strict';
 
-const VERSION = 'v1.5.2';
+const VERSION = 'v1.6.0';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
@@ -21,7 +22,9 @@ const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版
 const CACHE_VER = 2;
 
 const CROP_DEFAULT = { code: 'G3', name: '酪梨' };
-const SLOT = ['#6F8A54', '#9A7E5D', '#3E4C33'];   // 主行動綠 / 暖褐棕 / 深墨綠
+// 圖表三色。兩兩亮度比 1.91 / 1.96 / 3.73，疊在同一張圖上分得開。
+// 舊組合的主綠與褐色只差 1.06:1，實質上是同一階。
+const SLOT = ['#4A6733', '#B5832F', '#2C3722'];   // 主行動綠 / 琥珀 / 深墨綠
 
 const LS = {
   crop:   'probroMarketCrop',
@@ -325,31 +328,59 @@ const 今天ISO = () => {
 const 最新資料日 = () => S.rows.length ? S.rows[S.rows.length - 1].d : null;
 
 /**
- * 把「沒有新資料」拆成三種原因。分不出來的話，每次都要自己去查一輪。
- *   缺漏 → feed 裡有那天，但選定市場連休市列都沒有 ＝ 資料未匯入（最嚴重）
+ * 把「沒有新資料」拆成四種原因，由嚴重到輕微，先中先停。
+ *   缺漏 → feed 有那天，但選定市場全都連休市列都沒有 ＝ 整批未匯入
+ *   不同步 → 某些市場明顯落後其他市場（單一市場未匯入時會是這種）
  *   休市 → 有休市列，市場當天沒開市（正常）
  *   落後 → 整條管線還沒發布到今天
+ *
+ * 註：無法只靠「沒有紀錄」判斷單一市場是否未匯入——市場有開但當天沒成交這個作物，
+ * 也是沒有紀錄。所以單一市場改用「與其他市場相比落後多少天」來判斷，避免誤報。
  */
 function 資料落差() {
   const 交 = 最新資料日();
   if (!交) return null;
+  const all = S.allDates || [];
 
-  // 最新交易日之後、feed 有出現但選定市場全都沒有任何紀錄的日子
-  const 缺 = (S.allDates || []).filter(d =>
-    d > 交 && S.markets.length &&
+  // 每個選定市場自己的最新交易日
+  const 各 = S.markets.map(mc => {
+    const mine = S.rows.filter(r => r.mc === mc);
+    return { mc, name: S.mkName[mc] || mc, d: mine.length ? mine[mine.length - 1].d : null };
+  });
+
+  // ① 缺漏：所有選定市場在那幾天都完全沒紀錄
+  const 缺 = all.filter(d => d > 交 && S.markets.length &&
     S.markets.every(mc => !(S.mkDates[mc] || {})[d]));
-
   if (缺.length) {
-    const 列 = 缺.length <= 3
-      ? 缺.map(月日).join('、')
-      : `${月日(缺[0])} 起共 ${缺.length} 天`;
-    return { 類: '缺漏', 文: `資料源缺少 ${列} 的紀錄——這幾天並非休市，是尚未匯入。行情站官網可能已經查得到。` };
+    const 列 = 缺.length <= 3 ? 缺.map(月日).join('、') : `${月日(缺[0])} 起共 ${缺.length} 天`;
+    return { 類: '缺漏',
+      文: `資料源缺少 ${列} 的紀錄——這幾天並非休市，是尚未匯入。行情站官網可能已經查得到。` };
   }
 
+  // ② 不同步：有市場落後其他市場兩天以上
+  const 有日 = 各.map(x => x.d).filter(Boolean).sort();
+  if (有日.length) {
+    const 最新 = 有日[有日.length - 1];
+    const 慢 = 各.filter(x => x.d &&
+      Math.round((new Date(最新 + 'T00:00:00') - new Date(x.d + 'T00:00:00')) / 864e5) >= 2);
+    if (慢.length) {
+      return { 類: '不同步',
+        文: `${慢.map(x => `${x.name} 停在 ${月日(x.d)}`).join('、')}，`
+          + `其他市場已到 ${月日(最新)}。這幾天該市場的資料可能尚未匯入。` };
+    }
+  }
+
+  // ③ 休市
   const 涵 = S.coverage;
   if (涵 && 涵 > 交) {
-    return { 類: '休市', 文: `資料源已更新至 ${月日(涵)}，選定市場在那之後休市未交易` };
+    const 全同 = new Set(各.map(x => x.d)).size <= 1;
+    return { 類: '休市',
+      文: 全同
+        ? `資料源已更新至 ${月日(涵)}，選定市場在那之後休市未交易`
+        : `各市場最新交易：${各.map(x => `${x.name} ${x.d ? 月日(x.d) : '—'}`).join('　')}` };
   }
+
+  // ④ 整條管線落後
   if (涵 && 涵 < 今天ISO()) {
     return { 類: '落後', 文: `資料源最新只到 ${月日(涵)}，尚未發布之後的資料` };
   }
@@ -478,9 +509,9 @@ function 組圖(dates, series, 額外, opts) {
     const y = Y(v);
     const lab = opts.zero ? (v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v)) : 錢(v);
     g += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}"
-            stroke="#7A6449" stroke-opacity="0.16" stroke-width="1" stroke-dasharray="3 3"/>`;
+            stroke="#5A4E3A" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="3 3"/>`;
     g += `<text x="${PL - 6}" y="${(y + 3.6).toFixed(1)}" text-anchor="end"
-            font-size="10" fill="#9A7E5D" font-weight="600">${lab}</text>`;
+            font-size="10" fill="#6D7760" font-weight="600">${lab}</text>`;
   }
 
   const 末 = dates.length - 1;
@@ -490,13 +521,13 @@ function 組圖(dates, series, 額外, opts) {
   [...new Set(labIdx)].forEach(i => {
     const anc = i === 0 ? 'start' : i === 末 ? 'end' : 'middle';
     g += `<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${anc}"
-            font-size="10" fill="#9A7E5D" font-weight="600">${月日(dates[i])}</text>`;
+            font-size="10" fill="#6D7760" font-weight="600">${月日(dates[i])}</text>`;
   });
 
   if (額外) g += 額外(X, Y);      // 價格帶的色塊畫在格線之上、線條之下
 
   g += `<line id="xh" x1="${X(末).toFixed(1)}" y1="${PT}" x2="${X(末).toFixed(1)}"
-          y2="${PT + ih}" stroke="#3E4C33" stroke-width="1.5" opacity="0.30"/>`;
+          y2="${PT + ih}" stroke="#2C3722" stroke-width="1.5" opacity="0.32"/>`;
 
   series.forEach(s => {
     if (s.hidden) return;
@@ -518,7 +549,7 @@ function 組圖(dates, series, 額外, opts) {
 
   series.forEach((s, i) => {
     g += `<circle class="xhDot" data-i="${i}" cx="0" cy="0" r="4"
-            fill="${s.color}" stroke="#FAF7EF" stroke-width="2" opacity="0"/>`;
+            fill="${s.color}" stroke="#FDFBF7" stroke-width="2" opacity="0"/>`;
   });
 
   g += `<rect id="scrub" x="${PL}" y="0" width="${iw}" height="${GEO.H}" fill="transparent"/>`;
@@ -572,7 +603,7 @@ function 走勢圖(rows) {
     const ups = 取(S.focus, 'up'), lows = 取(S.focus, 'low');
     const series = [
       { name: '上價', color: c, pts: ups,             hidden: true },
-      { name: '中價', color: '#3E4C33', pts: 取(S.focus, 'mid'), w: 1.6, dash: '4 3', op: .7 },
+      { name: '中價', color: '#2C3722', pts: 取(S.focus, 'mid'), w: 1.6, dash: '4 3', op: .7 },
       { name: '下價', color: c, pts: lows,            hidden: true },
       { name: '均價', color: c, pts: 取(S.focus, 'avg'), w: 2.6 }
     ];
@@ -842,7 +873,7 @@ function 明細畫面() {
       if (!r) {
         h += `<div class="dRow" style="border-left-color:${色(i)}">
           <div class="dName">${nm}</div>
-          <div class="dNums" style="color:#9A7E5D;opacity:.6">休市或無交易</div></div>`;
+          <div class="dNums" style="color:#6D7760;opacity:.65">休市或無交易</div></div>`;
         return;
       }
       h += `<div class="dRow" style="border-left-color:${色(i)}">
@@ -944,6 +975,7 @@ function 設定畫面() {
          兩者不一致時，行情頁上方會標出原因，分成三種：<br><br>
          <b>休市</b>（米色）　那幾天有休市紀錄，市場沒開，屬正常。<br><br>
          <b>缺漏</b>（磚紅）　那幾天連休市紀錄都沒有，代表資料未匯入。市場其實有交易，官網查得到但 API 沒有。<br><br>
+         <b>不同步</b>（磚紅）　某個市場落後其他市場兩天以上，通常是那個市場的資料還沒匯入。<br><br>
          <b>落後</b>（磚紅）　整條管線還沒發布到今天。<br><br>
          農業部開放平臺的資料偶爾會比行情站官網慢一到兩天。真的急著要，請直接查
          <b>農產品批發市場交易行情站</b>。</p>
@@ -985,7 +1017,12 @@ function 設定畫面() {
       <h3>${esc(S.crop.name)}</h3>
       <p>作物代號 ${esc(S.crop.code)}．共 <b>${S.rows.length}</b> 筆，涵蓋 <b>${天數}</b> 個交易日。<br>
          資料源涵蓋至：<b>${S.coverage ? 月日(S.coverage) : '—'}</b><br>
-         選定市場最新交易：<b>${最新資料日() ? 月日(最新資料日()) : '—'}</b><br>
+         選定市場最新交易：<br>
+         ${S.markets.map(mc => {
+             const mine = S.rows.filter(r => r.mc === mc);
+             const d = mine.length ? mine[mine.length - 1].d : null;
+             return `　· ${esc(S.mkName[mc] || mc)}　<b>${d ? 月日(d) : '—'}</b>`;
+           }).join('<br>') || '　—'}<br>
          最後抓取：<b>${S.fetchedAt ? 時刻(S.fetchedAt) : '尚未更新'}</b></p>
     </div>
     <button class="btn ghost wide" id="btnPickCrop">換一個作物</button>
