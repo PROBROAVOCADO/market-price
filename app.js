@@ -1199,7 +1199,7 @@ function 設定畫面() {
     ${摺疊('privacy', '統計與隱私',     隱私說明)}
     ${摺疊('legal',   '免責與來源',     免責說明)}
 
-    <div class="secTitle">安裝到手機</div>
+    <div class="secTitle">安裝到手機 IOS/Android</div>
     <div class="setRow">
       <h3>${已安裝 ? '已經住進桌面了' : '像 App 一樣從桌面開啟'}</h3>
       <p>${已安裝
@@ -1213,8 +1213,8 @@ function 設定畫面() {
     <div class="secTitle">支持這個小工具</div>
     <div class="supportCard">
       <div class="supportMark" aria-hidden="true">♡</div>
-      <h3>隨喜支持</h3>
-      <p>如果這個行情工具替你省下一點時間，歡迎請我喝杯茶，支持持續維護與更新。</p>
+      <h3>買杯咖啡支持☕</h3>
+      <p>如果這個行情工具替你省下一點時間，歡迎請我喝杯咖啡，支持持續維護與更新。</p>
       <button class="btn wide" id="btnSupport">看看支持方式</button>
       <div class="supportNote">完全自願，不影響任何功能。</div>
     </div>
@@ -1346,22 +1346,22 @@ function 建立版本選單(host) {
     aria-labelledby="releaseTitle">
     <div class="sheetBody">
       <h2 id="releaseTitle">田邊的新鮮事</h2>
-      <p class="releaseHello">風一吹，園裡又冒出幾個新芽<br>這是最近三次耕耘的小小收成：</p>
+      <p class="releaseHello">風一吹，園裡又冒出幾個新芽<br>這是最近三次耕耘的小小收成🌱</p>
       <div class="releaseList">
         <article class="releaseItem">
           <div class="releaseHead"><span class="releaseVer">v1.8.0</span><span class="releaseSeason">本次收成</span></div>
-          <p>水果、蔬菜、漁產分畦排好，先挑大類再選品項；魚市場行情也一起開張啦！</p>
+          <p>水果、蔬菜、漁產分畦排好，先挑大類再選品項；🐟魚市場行情也一起開張啦！</p>
         </article>
         <article class="releaseItem">
           <div class="releaseHead"><span class="releaseVer">v1.7.0</span><span class="releaseSeason">上一季</span></div>
-          <p>新增「隨喜支持」，若工具幫上忙，歡迎透過 LINE 請小農喝杯茶。</p>
+          <p>新增「支持按鈕」，若小工具幫上忙，歡迎透過 LINE 請小農喝杯咖啡☕</p>
         </article>
         <article class="releaseItem">
           <div class="releaseHead"><span class="releaseVer">v1.6.0</span><span class="releaseSeason">前一季</span></div>
           <p>重新翻鬆整片色票，數字更清楚、日曬下看行情也更省眼力。</p>
         </article>
       </div>
-      <button class="btn wide" id="releaseClose">好，去逛今天的行情</button>
+      <button class="btn wide" id="releaseClose">🚚 好，去逛今天的行情</button>
     </div>
   </div>`;
   $('#releaseClose').addEventListener('click', () => { S.sheet = null; 畫面(); });
@@ -1371,14 +1371,14 @@ function 建立支持選單(host) {
   host.innerHTML = `<div class="sheet" id="supportBg" role="dialog" aria-modal="true"
     aria-labelledby="supportTitle">
     <div class="sheetBody">
-      <h2 id="supportTitle">隨喜支持</h2>
+      <h2 id="supportTitle">買杯咖啡支持☕</h2>
       <p>謝謝你願意支持這個農漁產行情小工具</p>
       <ol class="supportSteps">
         <li>先點下方按鈕，把我加入 LINE 好友。</li>
-        <li>到聊天室點「＋」→「手機轉帳」→「轉帳」，選擇 LINE Pay Money。</li>
-        <li>自行輸入想支持的金額，送出前請再次核對收款人。</li>
+        <li>到聊天室點「＋」→ 轉帳/小小打氣</li>
+        <li>謝謝您的支持☕</li>
       </ol>
-      <div class="supportCaution">轉帳完成後無法取消；雙方都必須已開通 LINE Pay Money。請依自己的心意與能力支持，不需要勉強。</div>
+      <div class="supportCaution">轉帳完成後無法取消；雙方都必須已開通 LINE Pay Money。請依自己的心意與能力支持</div>
       ${LINE_FRIEND_URL
         ? `<a class="btn wide" id="supportLine" href="${esc(LINE_FRIEND_URL)}"
              target="_blank" rel="noopener noreferrer">開啟 LINE 加好友</a>`
