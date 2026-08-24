@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農漁產品行情  app.js  v1.8.0
+/* 波波酪梨 · 農漁產品行情  app.js  v1.8.1
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」與「漁產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -12,10 +12,11 @@
  * v1.6.0：色票重整。原本數字的對比只有 3.56:1（全畫面最弱），現為 6.00:1。
  * v1.7.0：加入「隨喜支持」說明與 LINE 好友導流。
  * v1.8.0：加入水果／蔬菜／漁產雙層選單、漁產品行情與啟動更新摘要。
+ * v1.8.1：調整部分文字說明。
  */
 'use strict';
 
-const VERSION = 'v1.8.0';
+const VERSION = 'v1.8.1';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FISH_API = 'https://data.moa.gov.tw/Service/OpenData/FromM/AquaticTransData.aspx';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
