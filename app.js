@@ -1346,7 +1346,7 @@ function 建立版本選單(host) {
     aria-labelledby="releaseTitle">
     <div class="sheetBody">
       <h2 id="releaseTitle">田邊的新鮮事</h2>
-      <p class="releaseHello">風一吹，田裡又冒出幾個新芽。<br>這是最近三次耕耘的小小收成：</p>
+      <p class="releaseHello">風一吹，園裡又冒出幾個新芽<br>這是最近三次耕耘的小小收成：</p>
       <div class="releaseList">
         <article class="releaseItem">
           <div class="releaseHead"><span class="releaseVer">v1.8.0</span><span class="releaseSeason">本次收成</span></div>
