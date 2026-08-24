@@ -1350,7 +1350,7 @@ function 建立版本選單(host) {
       <p class="releaseHello">風一吹，園裡又冒出幾個新芽<br>這是最近三次耕耘的小小收成🌱</p>
       <div class="releaseList">
         <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.8.0</span><span class="releaseSeason">本次收成</span></div>
+          <div class="releaseHead"><span class="releaseVer">v1.8.1</span><span class="releaseSeason">本次收成</span></div>
           <p>水果、蔬菜、漁產分畦排好，先挑大類再選品項；🐟魚市場行情也一起開張啦！</p>
         </article>
         <article class="releaseItem">
