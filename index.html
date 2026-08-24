@@ -206,7 +206,20 @@ nav#tabs button[aria-current="true"]{color:var(--herb-green);opacity:1;font-weig
   border:1px dashed var(--avo-accent);border-radius:var(--r-field);
   padding:9px 13px;margin:0 0 12px;text-align:center;
 }
-.gapLine.warn{color:var(--brick);background:#FDF4F1;border-color:#E3C5BC;font-weight:600}
+.gapLine.warn{
+  display:flex;align-items:flex-start;gap:10px;text-align:left;
+  color:var(--brick);background:#FDF4F1;
+  border:1px solid #DCA99C;border-left:4px solid var(--brick);
+  border-radius:var(--r-field);
+  font-size:.78rem;font-weight:700;line-height:1.65;padding:12px 14px;
+  box-shadow:0 1px 3px rgba(168,91,71,.10);
+}
+.gapLine.warn::before{
+  content:"!";flex:none;width:19px;height:19px;border-radius:50%;
+  background:var(--brick);color:#FDF4F1;
+  font-size:.72rem;font-weight:800;line-height:1;margin-top:1px;
+  display:flex;align-items:center;justify-content:center;
+}
 
 .rangeLine b{color:var(--clay-deep);font-weight:700;font-variant-numeric:tabular-nums}
 
@@ -318,6 +331,68 @@ nav#tabs button[aria-current="true"]{color:var(--herb-green);opacity:1;font-weig
 .setRow.disclaimer h3{color:var(--clay-deep)}
 .setRow.disclaimer p{color:var(--clay-deep);font-size:.8rem}
 #setupBody .btn{margin-bottom:10px}
+
+
+/* ── 摺疊區塊 ───────────────────────────────────── */
+.acc{margin-bottom:10px}
+.accHead{
+  list-style:none;cursor:pointer;
+  font-family:var(--heading-font);font-size:.95rem;font-weight:600;
+  letter-spacing:2.5px;text-indent:2.5px;color:var(--avo-dark);
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  padding:15px 14px;
+  background-color:var(--creamy);background-image:var(--grain);
+  border:1px solid var(--rule);border-radius:var(--r-card);
+  box-shadow:0 1px 2px rgba(122,100,73,.04);
+}
+.accHead::-webkit-details-marker{display:none}
+.accHead::after{
+  content:"";flex:none;width:7px;height:7px;
+  border-right:2px solid var(--avo-accent);border-bottom:2px solid var(--avo-accent);
+  transform:rotate(45deg) translateY(-2px);transition:transform .25s;
+}
+.acc[open] .accHead::after{transform:rotate(-135deg) translateY(1px)}
+.acc[open] .accHead{border-radius:var(--r-card) var(--r-card) 0 0;border-bottom:0}
+.accBody{
+  background-color:var(--creamy);background-image:var(--grain);
+  border:1px solid var(--rule);border-top:1px dashed var(--rule);
+  border-radius:0 0 var(--r-card) var(--r-card);
+  box-shadow:0 1px 2px rgba(122,100,73,.04);
+}
+/* 摺疊內的卡片不再自己畫框，改用虛線分隔，避免框中框 */
+.accBody .setRow{
+  background:none;border:0;box-shadow:none;border-radius:0;margin:0;
+  padding:14px 16px;border-bottom:1px dashed var(--rule-soft);
+}
+.accBody .setRow:last-child{border-bottom:0}
+
+/* ── 破壞性動作 ─────────────────────────────────── */
+.dangerBtn{
+  display:flex;align-items:center;gap:13px;width:100%;text-align:left;
+  padding:14px 16px;margin-bottom:8px;
+  background:var(--creamy);border:1px solid var(--rule);
+  border-radius:var(--r-card);
+  transition:var(--transition-smooth);
+}
+.dangerBtn:active{background:var(--clay-pale)}
+.dangerIcon{
+  flex:none;width:38px;height:38px;border-radius:50%;
+  border:1px solid var(--avo-accent);color:var(--clay-deep);
+  display:flex;align-items:center;justify-content:center;
+}
+.dangerIcon svg{width:19px;height:19px;stroke:currentColor;fill:none;
+  stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.dangerText{flex:1;min-width:0}
+.dangerText b{display:block;font-size:.88rem;font-weight:700;
+  color:var(--avo-dark);letter-spacing:.8px}
+.dangerText span{display:block;font-size:.72rem;color:var(--avo-accent);
+  margin-top:2px;line-height:1.5}
+
+.dangerBtn.armed{background:#FDF4F1;border-color:var(--brick)}
+.dangerBtn.armed .dangerIcon{background:var(--brick);border-color:var(--brick);
+  color:#FDF4F1}
+.dangerBtn.armed .dangerText b{color:var(--brick)}
+.dangerBtn.armed .dangerText span{color:var(--brick);opacity:.85}
 
 /* ── 底部選單 ───────────────────────────────────── */
 .sheet{position:fixed;inset:0;z-index:60;background:rgba(62,76,51,.42);
