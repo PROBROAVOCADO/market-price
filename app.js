@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.5.1
+/* 波波酪梨 · 農產品行情  app.js  v1.5.2
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -11,10 +11,14 @@
  */
 'use strict';
 
-const VERSION = 'v1.5.1';
+const VERSION = 'v1.5.2';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
+
+/* 快取結構版本。只要 寫快取() 存的欄位有增減就必須 +1，
+   否則新版程式讀到舊格式，缺少的欄位會是 undefined —— 不會報錯，只會安靜地判斷錯誤。 */
+const CACHE_VER = 2;
 
 const CROP_DEFAULT = { code: 'G3', name: '酪梨' };
 const SLOT = ['#6F8A54', '#9A7E5D', '#3E4C33'];   // 主行動綠 / 暖褐棕 / 深墨綠
@@ -288,8 +292,10 @@ function 存選擇() {
 function 讀快取() {
   try {
     const c = JSON.parse(localStorage.getItem(LS.rows) || 'null');
-    // 快取綁定作物：換了作物就不能用舊資料，否則會顯示上一個作物的價格
-    if (!c || c.crop !== S.crop.code || !Array.isArray(c.rows) || !c.rows.length) return false;
+    // 快取同時綁定「結構版本」與「作物」：
+    // 版本不符 → 舊格式缺欄位，寧可重抓；作物不符 → 會顯示上一個作物的價格
+    if (!c || c.v !== CACHE_VER) return false;
+    if (c.crop !== S.crop.code || !Array.isArray(c.rows) || !c.rows.length) return false;
     S.rows = c.rows;
     S.mkName = c.name || {};
     S.coverage = c.cov || null;
@@ -303,6 +309,7 @@ function 讀快取() {
 function 寫快取() {
   try {
     localStorage.setItem(LS.rows, JSON.stringify({
+      v: CACHE_VER,
       crop: S.crop.code, rows: S.rows, name: S.mkName, cov: S.coverage,
       md: S.mkDates, ad: S.allDates, at: S.fetchedAt
     }));
