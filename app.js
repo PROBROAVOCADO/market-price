@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.5.0
+/* 波波酪梨 · 農產品行情  app.js  v1.5.1
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -11,7 +11,7 @@
  */
 'use strict';
 
-const VERSION = 'v1.5.0';
+const VERSION = 'v1.5.1';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
@@ -39,6 +39,8 @@ const S = {
   mkName: {},         // 代號 → 名稱
   mkRank: [],         // [{code, name, qty}]，依總交易量遞減
   coverage: null,     // API 這條管線更新到哪一天（含休市列）
+  mkDates: {},        // 市場代號 → { 日期: 1 }，用來分辨「休市」與「沒匯入」
+  allDates: [],       // feed 裡出現過的所有日期
   rows: [],           // [{d, mc, up, mid, low, avg, qty}]
   fetchedAt: null,
   days: 7,
@@ -155,11 +157,19 @@ async function 抓行情(crop) {
 function 整理(data, code) {
   const map = new Map();
   const name = {};
+  const 市場日 = {};      // 市場代號 → { 日期: 1 }，含休市列
+  const 全日期 = {};      // feed 裡出現過的所有日期
   let 涵蓋 = null;
   data.forEach(o => {
-    // 先看所有列（含休市列）能涵蓋到哪一天，這代表 API 這條管線更新到哪
+    // 休市列同樣要記。「有休市列」與「連休市列都沒有」是兩件事：
+    // 前者是市場當天沒開，後者是這個市場當天的資料根本沒匯入。
     const dd = 西元(o.TransDate);
-    if (dd && (!涵蓋 || dd > 涵蓋)) 涵蓋 = dd;
+    if (dd) {
+      全日期[dd] = 1;
+      if (!涵蓋 || dd > 涵蓋) 涵蓋 = dd;
+      const m0 = String(o.MarketCode || '').trim();
+      if (m0) (市場日[m0] = 市場日[m0] || {})[dd] = 1;
+    }
 
     if (String(o.CropCode) !== code) return;
     const mc = String(o.MarketCode || '').trim();
@@ -186,7 +196,7 @@ function 整理(data, code) {
   });
 
   const rows = [...map.values()].sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
-  return { rows, name, 涵蓋 };
+  return { rows, name, 涵蓋, 市場日, 全日期: Object.keys(全日期).sort() };
 }
 
 /** 依總交易量排出這個作物有哪些市場在交易 */
@@ -283,6 +293,8 @@ function 讀快取() {
     S.rows = c.rows;
     S.mkName = c.name || {};
     S.coverage = c.cov || null;
+    S.mkDates = c.md || {};
+    S.allDates = c.ad || [];
     S.fetchedAt = c.at || null;
     return true;
   } catch (e) { return false; }
@@ -291,7 +303,8 @@ function 讀快取() {
 function 寫快取() {
   try {
     localStorage.setItem(LS.rows, JSON.stringify({
-      crop: S.crop.code, rows: S.rows, name: S.mkName, cov: S.coverage, at: S.fetchedAt
+      crop: S.crop.code, rows: S.rows, name: S.mkName, cov: S.coverage,
+      md: S.mkDates, ad: S.allDates, at: S.fetchedAt
     }));
   } catch (e) { /* 略 */ }
 }
@@ -305,16 +318,30 @@ const 今天ISO = () => {
 const 最新資料日 = () => S.rows.length ? S.rows[S.rows.length - 1].d : null;
 
 /**
- * 把「沒有新資料」拆成兩種原因。分不出來的話，每次都要自己去查一輪。
- *   休市   → API 已更新到那天，但選定市場當天沒開市
- *   落後   → API 這條管線本身還沒發布到今天
+ * 把「沒有新資料」拆成三種原因。分不出來的話，每次都要自己去查一輪。
+ *   缺漏 → feed 裡有那天，但選定市場連休市列都沒有 ＝ 資料未匯入（最嚴重）
+ *   休市 → 有休市列，市場當天沒開市（正常）
+ *   落後 → 整條管線還沒發布到今天
  */
 function 資料落差() {
   const 交 = 最新資料日();
   if (!交) return null;
+
+  // 最新交易日之後、feed 有出現但選定市場全都沒有任何紀錄的日子
+  const 缺 = (S.allDates || []).filter(d =>
+    d > 交 && S.markets.length &&
+    S.markets.every(mc => !(S.mkDates[mc] || {})[d]));
+
+  if (缺.length) {
+    const 列 = 缺.length <= 3
+      ? 缺.map(月日).join('、')
+      : `${月日(缺[0])} 起共 ${缺.length} 天`;
+    return { 類: '缺漏', 文: `資料源缺少 ${列} 的紀錄——這幾天並非休市，是尚未匯入。行情站官網可能已經查得到。` };
+  }
+
   const 涵 = S.coverage;
   if (涵 && 涵 > 交) {
-    return { 類: '休市', 文: `資料源已更新至 ${月日(涵)}，但選定市場最近一次交易是 ${月日(交)}` };
+    return { 類: '休市', 文: `資料源已更新至 ${月日(涵)}，選定市場在那之後休市未交易` };
   }
   if (涵 && 涵 < 今天ISO()) {
     return { 類: '落後', 文: `資料源最新只到 ${月日(涵)}，尚未發布之後的資料` };
@@ -339,6 +366,8 @@ async function 更新(手動, 重設市場) {
     S.rows = r.rows;
     S.mkName = r.name;
     S.coverage = r.涵蓋 || null;
+    S.mkDates = r.市場日 || {};
+    S.allDates = r.全日期 || [];
     S.fetchedAt = new Date().toISOString();
     算市場排行();
     校正市場選擇(重設市場);
@@ -757,7 +786,7 @@ function 行情畫面() {
        + `　${期.length} 個交易日，橫跨 ${跨} 天</div>`;
   }
   const 差 = 資料落差();
-  if (差) h += `<div class="gapLine ${差.類 === '落後' ? 'warn' : ''}">${esc(差.文)}</div>`;
+  if (差) h += `<div class="gapLine ${差.類 === '休市' ? '' : 'warn'}">${esc(差.文)}</div>`;
 
   h += 走勢圖(rows);
   h += '<div class="secTitle">最新一個交易日</div>';
@@ -905,8 +934,10 @@ function 設定畫面() {
       <h3>這兩個日期為什麼會不一樣</h3>
       <p><b>資料源涵蓋至</b>　API 這條管線更新到哪一天（含休市紀錄）。<br><br>
          <b>選定市場最新交易</b>　你選的市場最近一次實際成交的日子。<br><br>
-         前者比後者新 → 那幾天<b>休市或無交易</b>，屬正常。<br>
-         前者落後今天 → <b>資料源還沒發布</b>，不是這支 App 的問題。<br><br>
+         兩者不一致時，行情頁上方會標出原因，分成三種：<br><br>
+         <b>休市</b>（米色）　那幾天有休市紀錄，市場沒開，屬正常。<br><br>
+         <b>缺漏</b>（磚紅）　那幾天連休市紀錄都沒有，代表資料未匯入。市場其實有交易，官網查得到但 API 沒有。<br><br>
+         <b>落後</b>（磚紅）　整條管線還沒發布到今天。<br><br>
          農業部開放平臺的資料偶爾會比行情站官網慢一到兩天。真的急著要，請直接查
          <b>農產品批發市場交易行情站</b>。</p>
     </div>
