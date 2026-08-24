@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.3.5
+/* 波波酪梨 · 農產品行情  app.js  v1.4.0
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -7,10 +7,11 @@
  *
  * v1.1.0：可自選作物與市場，選擇記在本機。
  * v1.2.0：視覺改用訂購網站 style.css v8 的設計語彙。
+ * v1.4.0：補上 Page/Next 分頁處理（先前只讀第一頁，資料會被安靜截斷）。
  */
 'use strict';
 
-const VERSION = 'v1.3.5';
+const VERSION = 'v1.4.0';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
@@ -98,12 +99,30 @@ function 公斤(n) {
 
 const 色 = i => SLOT[i] || SLOT[0];
 
-async function 取JSON(url) {
+const MAX_PAGE = 30;   // 保險絲：正常不會用到，避免 Next 永遠為 true 時無限迴圈
+
+async function 取一頁(url) {
   const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' });
   if (!res.ok) throw new Error('伺服器回應 ' + res.status);
   const j = await res.json();
   if (!j || !Array.isArray(j.Data)) throw new Error('回傳格式不符預期');
-  return j.Data;
+  return { data: j.Data, next: j.Next === true || j.Next === 'true' };
+}
+
+/**
+ * 依 API 文件：回傳結果 Next=true 時要帶 Page 參數續抓。
+ * 只讀第一頁的話，資料會被安靜截斷——不會報錯，只是變少，很難察覺。
+ */
+async function 取JSON(base) {
+  let out = [];
+  for (let page = 1; page <= MAX_PAGE; page++) {
+    const url = page > 1 ? `${base}&Page=${page}` : base;
+    const r = await 取一頁(url);
+    out = out.concat(r.data);
+    if (!r.next) return out;
+  }
+  console.warn('分頁超過 ' + MAX_PAGE + ' 頁，已停止續抓');
+  return out;
 }
 
 /* ── 行情資料 ──────────────────────────────────────────── */
