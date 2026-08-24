@@ -135,8 +135,6 @@ function 公斤(n) {
 
 const 色 = i => SLOT[i] || SLOT[0];
 
-const MAX_PAGE = 30;   // 保險絲：正常不會用到，避免 Next 永遠為 true 時無限迴圈
-
 async function 取一頁(url) {
   const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' });
   if (!res.ok) throw new Error('伺服器回應 ' + res.status);
@@ -146,19 +144,24 @@ async function 取一頁(url) {
 }
 
 /**
- * 依 API 文件：回傳結果 Next=true 時要帶 Page 參數續抓。
- * 只讀第一頁的話，資料會被安靜截斷——不會報錯，只是變少，很難察覺。
+ * 公開 API 現在對未登入請求只開放第一頁；資料超過上限時，改把日期範圍
+ * 對半切小後分別查詢。這樣仍能完整取得熱門品項的 55 天行情，不碰受限的 Page=2。
  */
-async function 取JSON(base) {
-  let out = [];
-  for (let page = 1; page <= MAX_PAGE; page++) {
-    const url = page > 1 ? `${base}&Page=${page}` : base;
-    const r = await 取一頁(url);
-    out = out.concat(r.data);
-    if (!r.next) return out;
+async function 取農產區間(start, end, params = '') {
+  const url = `${API}?Start_time=${民國(start)}&End_time=${民國(end)}${params}`;
+  const r = await 取一頁(url);
+  if (!r.next) return r.data;
+
+  const days = Math.round((end.getTime() - start.getTime()) / 864e5);
+  if (days <= 0) {
+    console.warn('單日農產資料超過公開 API 上限，保留第一頁');
+    return r.data;
   }
-  console.warn('分頁超過 ' + MAX_PAGE + ' 頁，已停止續抓');
-  return out;
+  const leftEnd = new Date(start.getTime() + Math.floor(days / 2) * 864e5);
+  const rightStart = new Date(leftEnd.getTime() + 864e5);
+  const left = await 取農產區間(start, leftEnd, params);
+  const right = await 取農產區間(rightStart, end, params);
+  return left.concat(right);
 }
 
 /* ── 行情資料 ──────────────────────────────────────────── */
@@ -174,9 +177,8 @@ async function 抓行情(crop) {
   if ((CATEGORY[crop.category] || CATEGORY.fruit).source === 'fish') return 抓漁產行情(crop);
   const end = new Date();
   const start = new Date(end.getTime() - FETCH_DAYS * 864e5);
-  const url = `${API}?Start_time=${民國(start)}&End_time=${民國(end)}`
-            + `&CropName=${encodeURIComponent(crop.name)}`;
-  return 整理(await 取JSON(url), crop.code);
+  const params = `&CropName=${encodeURIComponent(crop.name)}`;
+  return 整理(await 取農產區間(start, end, params), crop.code);
 }
 
 const FISH_PAGE = 1000;
@@ -314,7 +316,10 @@ async function 抓作物清單(category) {
   const tc = (CATEGORY[category] || CATEGORY.fruit).tc;
   for (let back = 0; back < 7; back++) {
     const d = new Date(Date.now() - back * 864e5);
-    const data = await 取JSON(`${API}?Start_time=${民國(d)}&End_time=${民國(d)}`);
+    // 先在伺服器端依大類過濾。清單只需第一頁即可涵蓋足夠品項，
+    // 也不會再因未登入帳號無法要求 Page=2 而讓整個水果選單失敗。
+    const r = await 取一頁(`${API}?Start_time=${民國(d)}&End_time=${民國(d)}&TcType=${tc}`);
+    const data = r.data;
     const tot = {}, name = {};
     data.forEach(o => {
       if (String(o.TcType || '') !== tc) return;
