@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.4.0
+/* 波波酪梨 · 農產品行情  app.js  v1.5.0
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -11,7 +11,7 @@
  */
 'use strict';
 
-const VERSION = 'v1.4.0';
+const VERSION = 'v1.5.0';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
@@ -51,7 +51,10 @@ const S = {
   listLoading: false,
   listErr: '',
   sheet: null,        // 'crop' ｜ null
-  q: ''               // 作物搜尋字串
+  q: '',              // 作物搜尋字串
+  open: {},           // 設定頁各摺疊區塊的開合狀態
+  armClear: false,    // 清除鈕的兩段式確認
+  armTimer: null
 };
 
 /* ── 小工具 ────────────────────────────────────────────── */
@@ -822,6 +825,14 @@ function 明細畫面() {
   box.innerHTML = h;
 }
 
+/** 摺疊區塊。開合狀態記在記憶體，重繪時還原；重開 App 則全部收起。 */
+function 摺疊(key, 標題, 內容) {
+  return `<details class="acc" data-acc="${key}" ${S.open[key] ? 'open' : ''}>
+    <summary class="accHead">${標題}</summary>
+    <div class="accBody">${內容}</div>
+  </details>`;
+}
+
 function 設定畫面() {
   const box = $('#setupBody');
   const 天數 = 期間日期(S.rows).length;
@@ -847,37 +858,7 @@ function 設定畫面() {
       }).join('')
     : '<div class="empty" style="padding:14px">還沒有資料</div>';
 
-  box.innerHTML = `
-    <button class="btn wide" id="btnReload" ${S.loading ? 'disabled' : ''}>
-      ${S.loading ? '更新中…' : '重新整理'}
-    </button>
-
-    <div class="secTitle">目前查詢</div>
-    <div class="setRow">
-      <h3>${esc(S.crop.name)}</h3>
-      <p>作物代號 ${esc(S.crop.code)}．共 <b>${S.rows.length}</b> 筆，涵蓋 <b>${天數}</b> 個交易日。<br>
-         資料源涵蓋至：<b>${S.coverage ? 月日(S.coverage) : '—'}</b><br>
-         選定市場最新交易：<b>${最新資料日() ? 月日(最新資料日()) : '—'}</b><br>
-         最後抓取：<b>${S.fetchedAt ? 時刻(S.fetchedAt) : '尚未更新'}</b></p>
-    </div>
-    <div class="setRow">
-      <h3>這兩個日期為什麼會不一樣</h3>
-      <p><b>資料源涵蓋至</b>　API 這條管線更新到哪一天（含休市紀錄）。<br><br>
-         <b>選定市場最新交易</b>　你選的市場最近一次實際成交的日子。<br><br>
-         前者比後者新 → 那幾天<b>休市或無交易</b>，屬正常。<br>
-         前者落後今天 → <b>資料源還沒發布</b>，不是這支 App 的問題。<br><br>
-         農業部開放平臺的資料偶爾會比行情站官網慢一到兩天。真的急著要，請直接查
-         <b>農產品批發市場交易行情站</b>。</p>
-    </div>
-    <button class="btn ghost wide" id="btnPickCrop">換一個作物</button>
-
-    <div class="secTitle">顯示哪些市場（最多 ${MAX_MK} 個）</div>
-    <div class="mkGrid">${市場鈕}</div>
-    <div class="setRow">
-      <p>只列出這個作物近 ${FETCH_DAYS} 天有交易的市場，依總交易量排序。換作物時會自動挑交易量前 ${MAX_MK} 大的。</p>
-    </div>
-
-    <div class="secTitle">怎麼看這些價格</div>
+  const 價格說明 = `
     <div class="setRow">
       <h3>上價、中價、下價</h3>
       <p>把當天所有成交依價格由高排到低，再依<b>交易量</b>切成三段，每段各自算平均：<br><br>
@@ -909,10 +890,11 @@ function 設定畫面() {
       <h3>「近 N 日均價」是另一層加權</h3>
       <p>那是把這幾天的總金額加起來除以總重量，加權的對象是<b>日期</b>，跟上面的 20／60／20 是不同層次的事。<br><br>
          不這樣算的話，只成交 300 公斤的冷門日，會跟成交 2 萬公斤的主力日一樣重要。</p>
-    </div>
+    </div>`;
 
-    <div class="secTitle">資料何時更新</div>
+  const 更新說明 = `
     <div class="setRow">
+      <h3>行情站什麼時候發布</h3>
       <p>行情站<b>當日下午</b>就會陸續發佈當天的成交資料，時間不固定，同一天可能補上多次。<br><br>
          這支 App 的作法是：只要手上還沒有今天的資料，每次打開就重試一次（最短間隔 30 分鐘）；
          已經拿到今天的資料就放慢，超過 6 小時才再抓。<br><br>
@@ -920,31 +902,78 @@ function 設定畫面() {
          部分市場週一休市，遇國定假日也會停市。</p>
     </div>
     <div class="setRow">
+      <h3>這兩個日期為什麼會不一樣</h3>
+      <p><b>資料源涵蓋至</b>　API 這條管線更新到哪一天（含休市紀錄）。<br><br>
+         <b>選定市場最新交易</b>　你選的市場最近一次實際成交的日子。<br><br>
+         前者比後者新 → 那幾天<b>休市或無交易</b>，屬正常。<br>
+         前者落後今天 → <b>資料源還沒發布</b>，不是這支 App 的問題。<br><br>
+         農業部開放平臺的資料偶爾會比行情站官網慢一到兩天。真的急著要，請直接查
+         <b>農產品批發市場交易行情站</b>。</p>
+    </div>
+    <div class="setRow">
       <h3>「近 N 個交易日」不等於日曆天</h3>
       <p>算的是<b>實際有成交的日子</b>，休市日不佔數。所以近 7 個交易日通常橫跨 8 到 9 個日曆天。<br><br>
          這樣做是為了讓圖上永遠有固定數量的資料點；若改用日曆天，遇到連假那週會只剩四、五個點，胖瘦不一反而看不出趨勢。<br><br>
          實際涵蓋的起訖日期就標在行情頁圖表上方。</p>
-    </div>
+    </div>`;
 
-    <div class="secTitle">維護</div>
-    <button class="btn ghost wide" id="btnClear">清除本機資料與設定</button>
-
+  const 隱私說明 = `
     <div class="setRow">
-      <h3>統計與隱私</h3>
+      <h3>匿名統計</h3>
       <p>本 App 使用 <b>Cloudflare Web Analytics</b> 統計匿名瀏覽數，用來了解有多少人在使用。<br><br>
          <b>不使用 cookie</b>、不做跨站追蹤、不記錄任何可識別個人的資料。<br><br>
          你選的作物與市場只存在這台裝置的瀏覽器裡，不會傳送到任何地方。</p>
-    </div>
+    </div>`;
 
-    <div class="setRow disclaimer">
-      <h3>免責聲明</h3>
+  const 免責說明 = `
+    <div class="setRow">
+      <h3>資料未經驗證</h3>
       <p>本 App 直接呈現農業部公開資料，未經加工或驗證，可能因資料源延遲、休市或格式變動而不完整。<br><br>
          實際交易請以<b>農產品批發市場交易行情站</b>原始資料為準。使用者依本 App 內容所做的任何決策，本 App 不負任何責任。</p>
     </div>
     <div class="setRow">
-      <p>資料來源：農業部農業資料開放平臺「農產品交易行情」，依政府資料開放平臺資料使用規範利用。<br>
+      <h3>資料來源</h3>
+      <p>農業部農業資料開放平臺「農產品交易行情」，依政府資料開放平臺資料使用規範利用。<br><br>
          本 App 為個人工具，與農業部無關。</p>
+    </div>`;
+
+  box.innerHTML = `
+    <button class="btn wide" id="btnReload" ${S.loading ? 'disabled' : ''}>
+      ${S.loading ? '更新中…' : '重新整理'}
+    </button>
+
+    <div class="secTitle">目前查詢</div>
+    <div class="setRow">
+      <h3>${esc(S.crop.name)}</h3>
+      <p>作物代號 ${esc(S.crop.code)}．共 <b>${S.rows.length}</b> 筆，涵蓋 <b>${天數}</b> 個交易日。<br>
+         資料源涵蓋至：<b>${S.coverage ? 月日(S.coverage) : '—'}</b><br>
+         選定市場最新交易：<b>${最新資料日() ? 月日(最新資料日()) : '—'}</b><br>
+         最後抓取：<b>${S.fetchedAt ? 時刻(S.fetchedAt) : '尚未更新'}</b></p>
     </div>
+    <button class="btn ghost wide" id="btnPickCrop">換一個作物</button>
+
+    <div class="secTitle">顯示哪些市場（最多 ${MAX_MK} 個）</div>
+    <div class="mkGrid">${市場鈕}</div>
+    <div class="setRow">
+      <p>只列出這個作物近 ${FETCH_DAYS} 天有交易的市場，依總交易量排序。換作物時會自動挑交易量前 ${MAX_MK} 大的。</p>
+    </div>
+
+    <div class="secTitle">說明</div>
+    ${摺疊('price',   '怎麼看這些價格', 價格說明)}
+    ${摺疊('update',  '資料何時更新',   更新說明)}
+    ${摺疊('privacy', '統計與隱私',     隱私說明)}
+    ${摺疊('legal',   '免責與來源',     免責說明)}
+
+    <div class="secTitle">維護</div>
+    <button class="dangerBtn ${S.armClear ? 'armed' : ''}" id="btnClear">
+      <span class="dangerIcon">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5.4A1.4 1.4 0 0 1 10.9 4h2.2a1.4 1.4 0 0 1 1.4 1.4V7"/><path d="M6.5 7l.9 12.1A1.5 1.5 0 0 0 8.9 20.5h6.2a1.5 1.5 0 0 0 1.5-1.4L17.5 7"/><path d="M10.5 11v5.5M13.5 11v5.5"/></svg>
+      </span>
+      <span class="dangerText">
+        <b>${S.armClear ? '再按一次確認清除' : '清除本機資料與設定'}</b>
+        <span>${S.armClear ? '此動作無法復原' : '清掉作物與市場選擇、快取，下次開啟重新載入'}</span>
+      </span>
+    </button>
 
     <div class="colophon">
       <p class="colophon-title">PRO-BRO AVOCADO</p>
@@ -955,12 +984,26 @@ function 設定畫面() {
     </div>
   `;
 
+  box.querySelectorAll('[data-acc]').forEach(d =>
+    d.addEventListener('toggle', () => { S.open[d.dataset.acc] = d.open; }));
+
   $('#btnReload').addEventListener('click', () => 更新(true, false));
   $('#btnPickCrop').addEventListener('click', 開啟作物選單);
+
   $('#btnClear').addEventListener('click', () => {
+    if (!S.armClear) {                       // 破壞性動作要兩段式，誤觸不會直接清光
+      S.armClear = true;
+      畫面();
+      clearTimeout(S.armTimer);
+      S.armTimer = setTimeout(() => { S.armClear = false; 畫面(); }, 5000);
+      return;
+    }
+    clearTimeout(S.armTimer);
+    S.armClear = false;
     Object.keys(LS).forEach(k => localStorage.removeItem(LS[k]));
     S.rows = []; S.mkName = {}; S.mkRank = []; S.markets = [];
-    S.fetchedAt = null; S.cropList = []; S.crop = { ...CROP_DEFAULT };
+    S.fetchedAt = null; S.coverage = null; S.cropList = [];
+    S.crop = { ...CROP_DEFAULT }; S.focus = null; S.open = {};
     toast('已清除，重新載入中');
     更新(false, true);
   });
