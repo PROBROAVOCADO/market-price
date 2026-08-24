@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.3.4
+/* 波波酪梨 · 農產品行情  app.js  v1.3.5
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -10,7 +10,7 @@
  */
 'use strict';
 
-const VERSION = 'v1.3.4';
+const VERSION = 'v1.3.5';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
@@ -37,6 +37,7 @@ const S = {
   markets: [],        // 選定的市場代號，最多 3 個
   mkName: {},         // 代號 → 名稱
   mkRank: [],         // [{code, name, qty}]，依總交易量遞減
+  coverage: null,     // API 這條管線更新到哪一天（含休市列）
   rows: [],           // [{d, mc, up, mid, low, avg, qty}]
   fetchedAt: null,
   days: 7,
@@ -132,7 +133,12 @@ async function 抓行情(crop) {
 function 整理(data, code) {
   const map = new Map();
   const name = {};
+  let 涵蓋 = null;
   data.forEach(o => {
+    // 先看所有列（含休市列）能涵蓋到哪一天，這代表 API 這條管線更新到哪
+    const dd = 西元(o.TransDate);
+    if (dd && (!涵蓋 || dd > 涵蓋)) 涵蓋 = dd;
+
     if (String(o.CropCode) !== code) return;
     const mc = String(o.MarketCode || '').trim();
     const d = 西元(o.TransDate);
@@ -158,7 +164,7 @@ function 整理(data, code) {
   });
 
   const rows = [...map.values()].sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
-  return { rows, name };
+  return { rows, name, 涵蓋 };
 }
 
 /** 依總交易量排出這個作物有哪些市場在交易 */
@@ -254,6 +260,7 @@ function 讀快取() {
     if (!c || c.crop !== S.crop.code || !Array.isArray(c.rows) || !c.rows.length) return false;
     S.rows = c.rows;
     S.mkName = c.name || {};
+    S.coverage = c.cov || null;
     S.fetchedAt = c.at || null;
     return true;
   } catch (e) { return false; }
@@ -262,7 +269,7 @@ function 讀快取() {
 function 寫快取() {
   try {
     localStorage.setItem(LS.rows, JSON.stringify({
-      crop: S.crop.code, rows: S.rows, name: S.mkName, at: S.fetchedAt
+      crop: S.crop.code, rows: S.rows, name: S.mkName, cov: S.coverage, at: S.fetchedAt
     }));
   } catch (e) { /* 略 */ }
 }
@@ -274,6 +281,24 @@ const 今天ISO = () => {
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 };
 const 最新資料日 = () => S.rows.length ? S.rows[S.rows.length - 1].d : null;
+
+/**
+ * 把「沒有新資料」拆成兩種原因。分不出來的話，每次都要自己去查一輪。
+ *   休市   → API 已更新到那天，但選定市場當天沒開市
+ *   落後   → API 這條管線本身還沒發布到今天
+ */
+function 資料落差() {
+  const 交 = 最新資料日();
+  if (!交) return null;
+  const 涵 = S.coverage;
+  if (涵 && 涵 > 交) {
+    return { 類: '休市', 文: `資料源已更新至 ${月日(涵)}，但選定市場最近一次交易是 ${月日(交)}` };
+  }
+  if (涵 && 涵 < 今天ISO()) {
+    return { 類: '落後', 文: `資料源最新只到 ${月日(涵)}，尚未發布之後的資料` };
+  }
+  return null;
+}
 
 /** 自動更新的判斷。手動按重新整理不走這裡，一律直接抓。 */
 function 需要更新() {
@@ -291,6 +316,7 @@ async function 更新(手動, 重設市場) {
     const r = await 抓行情(S.crop);
     S.rows = r.rows;
     S.mkName = r.name;
+    S.coverage = r.涵蓋 || null;
     S.fetchedAt = new Date().toISOString();
     算市場排行();
     校正市場選擇(重設市場);
@@ -708,6 +734,8 @@ function 行情畫面() {
     h += `<div class="rangeLine">資料範圍 <b>${月日(期[0])} – ${月日(期[期.length - 1])}</b>`
        + `　${期.length} 個交易日，橫跨 ${跨} 天</div>`;
   }
+  const 差 = 資料落差();
+  if (差) h += `<div class="gapLine ${差.類 === '落後' ? 'warn' : ''}">${esc(差.文)}</div>`;
 
   h += 走勢圖(rows);
   h += '<div class="secTitle">最新一個交易日</div>';
@@ -809,9 +837,18 @@ function 設定畫面() {
     <div class="setRow">
       <h3>${esc(S.crop.name)}</h3>
       <p>作物代號 ${esc(S.crop.code)}．共 <b>${S.rows.length}</b> 筆，涵蓋 <b>${天數}</b> 個交易日。<br>
-         手上最新資料：<b>${最新資料日() ? 月日(最新資料日()) : '—'}</b>
-         ${最新資料日() && 最新資料日() < 今天ISO() ? '（尚未取得今日）' : ''}<br>
+         資料源涵蓋至：<b>${S.coverage ? 月日(S.coverage) : '—'}</b><br>
+         選定市場最新交易：<b>${最新資料日() ? 月日(最新資料日()) : '—'}</b><br>
          最後抓取：<b>${S.fetchedAt ? 時刻(S.fetchedAt) : '尚未更新'}</b></p>
+    </div>
+    <div class="setRow">
+      <h3>這兩個日期為什麼會不一樣</h3>
+      <p><b>資料源涵蓋至</b>　API 這條管線更新到哪一天（含休市紀錄）。<br><br>
+         <b>選定市場最新交易</b>　你選的市場最近一次實際成交的日子。<br><br>
+         前者比後者新 → 那幾天<b>休市或無交易</b>，屬正常。<br>
+         前者落後今天 → <b>資料源還沒發布</b>，不是這支 App 的問題。<br><br>
+         農業部開放平臺的資料偶爾會比行情站官網慢一到兩天。真的急著要，請直接查
+         <b>農產品批發市場交易行情站</b>。</p>
     </div>
     <button class="btn ghost wide" id="btnPickCrop">換一個作物</button>
 
