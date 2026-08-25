@@ -838,7 +838,8 @@ function 更新讀數(i) {
     const v = s.pts[i];
     const txt = v == null ? '休市' : (c.unit === '交易量' ? 公斤(v) : 錢(v));
     return `<span class="${v == null ? 'off' : ''}">
-      <i style="background:${s.color}"></i>${esc(s.name)} <b class="num">${txt}</b></span>`;
+      <i style="background:${s.color}"></i><span class="roName">${esc(s.name)}</span>
+      <b class="num">${txt}</b></span>`;
   }).join('');
 
   box.innerHTML = `<div class="roDate">${月日(d)}（${週(d)}）
@@ -1464,14 +1465,21 @@ function 作物搜尋鍵(value) {
   let key = String(value == null ? '' : value);
   try { key = key.normalize('NFKC'); } catch (e) { /* 舊瀏覽器照原字串搜尋 */ }
   // 名稱中的空格、連字號只是排版差異；「酪梨進口」也要能找到「酪梨-進口」。
-  return key.trim().toUpperCase().replace(/[\s\-－—_·・／/]+/g, '');
+  // 「番／蕃」、「台／臺」也視為同一寫法，避免不同資料源用字造成找不到。
+  return key.trim().toUpperCase()
+    .replace(/蕃/g, '番').replace(/臺/g, '台')
+    .replace(/[\s\-－—_·・／/]+/g, '');
 }
 
 function 符合搜尋的作物() {
   const q = 作物搜尋鍵(S.q);
   if (!q) return S.cropList.slice();
-  return S.cropList.filter(c =>
-    作物搜尋鍵(c.code).includes(q) || 作物搜尋鍵(c.name).includes(q));
+  return S.cropList.filter(c => {
+    if (作物搜尋鍵(c.code).includes(q)) return true;
+    // 完整名稱與每一段細項都比對；例如「番茄-牛番茄」可直接用「牛番茄」找到。
+    const names = [String(c.name || '')].concat(String(c.name || '').split(/[\s\-－—_·・／/]+/));
+    return names.some(name => 作物搜尋鍵(name).includes(q));
+  });
 }
 
 function 填作物清單() {
@@ -1561,12 +1569,18 @@ function 建立作物選單(host) {
     填作物清單();
     確保作物清單(S.pickCategory);
   });
-  let composing = false;
   const search = $('#itemSearch');
-  const 套用搜尋 = () => { S.q = search.value; 填作物清單(); };
-  search.addEventListener('compositionstart', () => { composing = true; });
-  search.addEventListener('compositionend', () => { composing = false; 套用搜尋(); });
-  search.addEventListener('input', e => { if (!composing && !e.isComposing) 套用搜尋(); });
+  const 套用搜尋 = () => {
+    const next = search.value;
+    if (S.q === next) return;
+    S.q = next;
+    填作物清單();
+  };
+  // Android 中文輸入法在組字期間不一定會補送最後一次 input，因此不忽略 composing 事件。
+  search.addEventListener('input', 套用搜尋);
+  search.addEventListener('compositionend', () => setTimeout(套用搜尋, 0));
+  search.addEventListener('change', 套用搜尋);
+  search.addEventListener('search', 套用搜尋);
   search.addEventListener('keydown', e => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
