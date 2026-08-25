@@ -14,6 +14,7 @@
  * v1.8.0：加入水果／蔬菜／漁產雙層選單、漁產品行情與啟動更新摘要。
  * v1.8.1：調整部分文字說明。
  * v1.8.2：第二層品項加入名稱／代碼搜尋，選項同步顯示品項代碼。
+ * v1.8.2 修正：品項選單合併官方完整代碼表，不再漏掉當日未成交品項。
  */
 'use strict';
 
@@ -22,6 +23,7 @@ const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FISH_API = 'https://data.moa.gov.tw/Service/OpenData/FromM/AquaticTransData.aspx';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
+const CROP_CATALOG = window.PROBRO_CROP_CATALOG || {}; // 官方完整蔬果品名代碼表，由 crop-catalog.js 提供
 
 /* 從 LINE App 的「顯示行動條碼」頁面按「複製連結」，貼到下方引號內。
    空白時支持說明仍可預覽，但「開啟 LINE」按鈕會停用，避免導向錯誤帳號。 */
@@ -52,7 +54,8 @@ const LS = {
    改成：手上還沒有今天的資料就繼續試，已經拿到就放慢。 */
 const MIN_GAP = 30 * 60 * 1000;               // 兩次自動抓取的最短間隔
 const MAX_AGE = 6 * 60 * 60 * 1000;           // 就算已有今日資料，超過這個時間仍重抓一次
-const LIST_TTL = 30 * 24 * 60 * 60 * 1000;    // 作物清單一個月重抓一次
+const LIST_TTL = 24 * 60 * 60 * 1000;         // 成交量排序每天更新；完整代碼表不依賴這份快取
+const LIST_CACHE_VER = 2;                      // v2 起清單包含當日未成交的完整代碼品項
 
 /* ── 狀態 ──────────────────────────────────────────────── */
 const S = {
@@ -309,16 +312,39 @@ function 校正市場選擇(重設) {
 /* ── 作物清單 ──────────────────────────────────────────── */
 
 /**
- * 不帶 CropName 查詢會回傳當期全品項，資料量很大，所以一次只查一天，
- * 從今天往回試，遇到第一個正常開市的日子就停。清單快取一個月。
+ * 把最近交易日清單與官方完整代碼表合併：
+ *   - 有成交的品項保留交易量排序，放在前面。
+ *   - 當日沒成交的品項仍可依名稱或代碼搜尋，放在後面並以 qty=0 標示。
+ * API 偶爾出現代碼表尚未收錄的新項目時，也會保留 API 回傳的項目。
+ */
+function 合併完整作物清單(category, recent = []) {
+  const catalog = CROP_CATALOG[category];
+  if (!Array.isArray(catalog) || !catalog.length) return recent;
+
+  const active = recent.map(c => ({ ...c, qty: +c.qty || 0 }));
+  const seen = new Set(active.map(c => String(c.code)));
+  const inactive = [];
+  catalog.forEach(entry => {
+    if (!Array.isArray(entry) || entry.length < 2) return;
+    const code = String(entry[0] || '').trim();
+    const name = String(entry[1] || '').trim();
+    if (!code || !name || seen.has(code)) return;
+    seen.add(code);
+    inactive.push({ code, name, qty: 0 });
+  });
+  return active.concat(inactive);
+}
+
+/**
+ * 不帶 CropName 查詢會回傳當期全品項，資料量很大，所以一次只查一天。
+ * 最近交易日資料只負責排序；可搜尋的品項以官方完整代碼表補齊。
  */
 async function 抓作物清單(category) {
   if ((CATEGORY[category] || CATEGORY.fruit).source === 'fish') return 抓漁產清單();
   const tc = (CATEGORY[category] || CATEGORY.fruit).tc;
   for (let back = 0; back < 7; back++) {
     const d = new Date(Date.now() - back * 864e5);
-    // 先在伺服器端依大類過濾。清單只需第一頁即可涵蓋足夠品項，
-    // 也不會再因未登入帳號無法要求 Page=2 而讓整個水果選單失敗。
+    // 先在伺服器端依大類過濾。這一頁只用來排近期品項；完整性由本機代碼表負責。
     const r = await 取一頁(`${API}?Start_time=${民國(d)}&End_time=${民國(d)}&TcType=${tc}`);
     const data = r.data;
     const tot = {}, name = {};
@@ -333,9 +359,11 @@ async function 抓作物清單(category) {
     const list = Object.keys(tot)
       .map(code => ({ code, name: name[code], qty: tot[code] }))
       .sort((a, b) => b.qty - a.qty);
-    if (list.length > 15) return list;               // 避開當日資料尚未完整發布的半套清單
+    if (list.length > 15) return 合併完整作物清單(category, list); // 避開尚未完整發布的半套清單
   }
-  throw new Error('最近七天都查不到交易資料');
+  const catalogOnly = 合併完整作物清單(category, []);
+  if (catalogOnly.length) return catalogOnly;
+  throw new Error('最近七天都查不到交易資料，完整品項表也無法載入');
 }
 
 async function 抓漁產清單() {
@@ -359,7 +387,7 @@ async function 抓漁產清單() {
   throw new Error('最近七天都查不到漁產交易資料');
 }
 
-const 清單鍵 = (base, category) => `${base}:${category}`;
+const 清單鍵 = (base, category) => `${base}:v${LIST_CACHE_VER}:${category}`;
 
 async function 確保作物清單(category = S.pickCategory) {
   if (S.cropList.length) return;
@@ -384,7 +412,14 @@ async function 確保作物清單(category = S.pickCategory) {
     } catch (e) { /* 容量滿，不影響本次 */ }
   } catch (e) {
     if (request !== S.listRequest || category !== S.pickCategory) return;
-    S.listErr = String(e.message || e);
+    // 沒網路時仍讓使用者從隨 App 附帶的完整代碼表選品項；只會缺少近期成交量排序。
+    const catalogOnly = 合併完整作物清單(category, []);
+    if (catalogOnly.length) {
+      S.cropList = catalogOnly;
+      S.listErr = '';
+    } else {
+      S.listErr = String(e.message || e);
+    }
   } finally {
     if (request === S.listRequest && category === S.pickCategory) {
       S.listLoading = false; 畫面();
@@ -1357,7 +1392,7 @@ function 建立版本選單(host) {
       <div class="releaseList">
         <article class="releaseItem">
           <div class="releaseHead"><span class="releaseVer">v1.8.2</span><span class="releaseSeason">本次收成</span></div>
-          <p>第二層品項新增名稱／代碼搜尋，輸入「酪梨」或「G3」都能快速找到。</p>
+          <p>第二層品項可用名稱／代碼搜尋，也補齊當日未成交的完整品項；牛番茄、進口酪梨都找得到。</p>
         </article>
         <article class="releaseItem">
           <div class="releaseHead"><span class="releaseVer">v1.8.1</span><span class="releaseSeason">上一季</span></div>
@@ -1402,7 +1437,8 @@ function 建立支持選單(host) {
 function 作物搜尋鍵(value) {
   let key = String(value == null ? '' : value);
   try { key = key.normalize('NFKC'); } catch (e) { /* 舊瀏覽器照原字串搜尋 */ }
-  return key.trim().toUpperCase().replace(/\s+/g, '');
+  // 名稱中的空格、連字號只是排版差異；「酪梨進口」也要能找到「酪梨-進口」。
+  return key.trim().toUpperCase().replace(/[\s\-－—_·・／/]+/g, '');
 }
 
 function 符合搜尋的作物() {
@@ -1438,7 +1474,7 @@ function 填作物清單() {
   const previous = item.value;
   const found = 符合搜尋的作物();
   const options = found.map(c =>
-    `<option value="${esc(c.code)}" data-name="${esc(c.name)}">${esc(c.code)}｜${esc(c.name)}　${公斤(c.qty)}</option>`).join('');
+    `<option value="${esc(c.code)}" data-name="${esc(c.name)}">${esc(c.code)}｜${esc(c.name)}　${c.qty > 0 ? 公斤(c.qty) : '近期未成交'}</option>`).join('');
   item.innerHTML = `<option value="">${S.q ? '請選擇符合品項' : '請選擇品項'}</option>` + options;
 
   const q = 作物搜尋鍵(S.q);
@@ -1455,13 +1491,15 @@ function 填作物清單() {
   if (S.q && found.length) {
     const chosen = found.find(c => c.code === item.value);
     help.textContent = chosen
-      ? `已選取 ${chosen.code}｜${chosen.name}；按 Enter 可直接查看。`
+      ? chosen.qty > 0
+        ? `已選取 ${chosen.code}｜${chosen.name}；按 Enter 可直接查看。`
+        : `已選取 ${chosen.code}｜${chosen.name}；最近交易日未成交，仍可查看近 ${FETCH_DAYS} 天行情。`
       : `找到 ${found.length} 個品項，請從下拉選單挑一個。`;
   } else if (S.q) {
     help.textContent = `找不到「${S.q}」，請換個名稱、代碼或確認大類。`;
   } else {
     help.textContent = S.cropList.length
-      ? `可輸入名稱或代碼搜尋；依最近交易日總量排序，共 ${S.cropList.length} 個品項。`
+      ? `可輸入名稱或代碼搜尋；近期有成交的排前面，完整代碼共 ${S.cropList.length} 個品項。`
       : '這個大類最近沒有交易品項。';
   }
 }
