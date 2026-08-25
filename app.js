@@ -22,7 +22,7 @@ const VERSION = 'v1.8.2';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FISH_API = 'https://data.moa.gov.tw/Service/OpenData/FromM/AquaticTransData.aspx';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
-const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
+const DEFAULT_MK = 3;           // 換品項時先選交易量前三大；使用者之後可不限數量或直接全選
 const CROP_CATALOG = window.PROBRO_CROP_CATALOG || {}; // 官方完整蔬果品名代碼表，由 crop-catalog.js 提供
 
 /* 從 LINE App 的「顯示行動條碼」頁面按「複製連結」，貼到下方引號內。
@@ -39,9 +39,14 @@ const CATEGORY = {
   fish:      { name: '漁產', source: 'fish', tc: null }
 };
 const CROP_DEFAULT = { code: 'G3', name: '酪梨', category: 'fruit' };
-// 圖表三色。兩兩亮度比 1.91 / 1.96 / 3.73，疊在同一張圖上分得開。
-// 舊組合的主綠與褐色只差 1.06:1，實質上是同一階。
-const SLOT = ['#4A6733', '#B5832F', '#2C3722'];   // 主行動綠 / 琥珀 / 深墨綠
+// 多市場色盤使用偏深色，讓走勢線在米白底上仍清楚，選取按鈕上的白字也看得見。
+// 一般蔬果市場約十多個；若未來超過色盤長度才循環使用。
+const SLOT = [
+  '#4A6733', '#B5832F', '#2C3722', '#9C4535', '#2F6B73',
+  '#6E4F8A', '#406A9C', '#8A5A36', '#7B3F61', '#3F7A5D',
+  '#6F642E', '#4E567C', '#9A5E25', '#3A6861', '#7A4C3C',
+  '#516B3F', '#5B4773', '#346278', '#8C4F55', '#5B6330'
+];
 
 const LS = {
   crop:   'probroMarketCrop',
@@ -62,7 +67,7 @@ const S = {
   crop: { ...CROP_DEFAULT },
   category: CROP_DEFAULT.category,
   pickCategory: CROP_DEFAULT.category,
-  markets: [],        // 選定的市場代號，最多 3 個
+  markets: [],        // 選定的市場代號，不限數量
   mkName: {},         // 代號 → 名稱
   mkRank: [],         // [{code, name, qty}]，依總交易量遞減
   coverage: null,     // API 這條管線更新到哪一天（含休市列）
@@ -71,7 +76,7 @@ const S = {
   rows: [],           // [{d, mc, up, mid, low, avg, qty}]
   fetchedAt: null,
   days: 7,
-  focus: null,        // null＝三市比較；市場代號＝單一市場價格帶
+  focus: null,        // null＝多市場比較；市場代號＝單一市場價格帶
   metric: 'avg',     // 比較模式：avg/mid/up/low/qty ｜ 單市模式：band/qty
   loading: false,
   err: '',
@@ -137,7 +142,7 @@ function 公斤(n) {
   return Math.round(n).toLocaleString('zh-TW') + ' kg';
 }
 
-const 色 = i => SLOT[i] || SLOT[0];
+const 色 = i => SLOT[((i % SLOT.length) + SLOT.length) % SLOT.length];
 
 async function 取一頁(url) {
   const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' });
@@ -304,7 +309,7 @@ function 算市場排行() {
 function 校正市場選擇(重設) {
   const 有 = new Set(S.mkRank.map(m => m.code));
   S.markets = 重設 ? [] : S.markets.filter(mc => 有.has(mc));
-  if (!S.markets.length) S.markets = S.mkRank.slice(0, MAX_MK).map(m => m.code);
+  if (!S.markets.length) S.markets = S.mkRank.slice(0, DEFAULT_MK).map(m => m.code);
   if (S.focus && S.markets.indexOf(S.focus) < 0) S.focus = null;   // 焦點市場被移除就回到比較模式
   存選擇();
 }
@@ -440,7 +445,7 @@ function 讀選擇() {
   } catch (e) { /* 用預設 */ }
   try {
     const m = JSON.parse(localStorage.getItem(LS.mkts) || 'null');
-    if (Array.isArray(m)) S.markets = m.slice(0, MAX_MK).map(String);
+    if (Array.isArray(m)) S.markets = m.map(String);
   } catch (e) { /* 用自動挑選 */ }
 }
 
@@ -755,9 +760,11 @@ function 走勢圖(rows) {
 
   let html;
   if (!S.focus) {
-    /* 三市比較：一個指標、三條線 */
+    /* 多市場比較：市場很多時把線稍微畫細，減少彼此遮蓋 */
+    const crowded = S.markets.length > 6;
     const series = S.markets.map((mc, i) => ({
-      name: S.mkName[mc] || mc, color: 色(i), pts: 取(mc, S.metric)
+      name: S.mkName[mc] || mc, color: 色(i), pts: 取(mc, S.metric),
+      w: crowded ? 1.45 : 2.2, op: crowded ? 0.9 : 1
     }));
     html = 組圖(dates, series, null, {
       zero: S.metric === 'qty',
@@ -972,7 +979,7 @@ function 行情畫面() {
     <button class="chip ${S.days === 30 ? 'on' : ''}" data-days="30">近 30 個交易日</button>
   </div>
   <div class="chips">
-    <button class="chip ${!S.focus ? 'on' : ''}" data-focus="">三市比較</button>
+    <button class="chip ${!S.focus ? 'on' : ''}" data-focus="">市場比較（${S.markets.length}）</button>
     ${市場鈕}
   </div>
   <div class="chips">
@@ -999,6 +1006,9 @@ function 行情畫面() {
   }
   const 差 = 資料落差();
   if (差) h += `<div class="gapLine ${差.類 === '休市' ? '' : 'warn'}">${esc(差.文)}</div>`;
+  if (!S.focus && S.markets.length > 6) {
+    h += `<div class="gapLine">目前同時比較 ${S.markets.length} 個市場，線條較密；可點上方任一市場名稱，單獨查看價格帶。</div>`;
+  }
 
   h += 走勢圖(rows);
   h += '<div class="secTitle">最新一個交易日</div>';
@@ -1102,6 +1112,9 @@ function 設定畫面() {
           >${esc(m.name)} <span class="num">${公斤(m.qty)}</span></button>`;
       }).join('')
     : '<div class="empty" style="padding:14px">還沒有資料</div>';
+  const 已全選市場 = S.mkRank.length > 0
+    && S.markets.length === S.mkRank.length
+    && S.mkRank.every(m => S.markets.indexOf(m.code) >= 0);
 
   const 價格說明 = isFish ? `
     <div class="setRow">
@@ -1229,10 +1242,15 @@ function 設定畫面() {
     </div>
     <button class="btn ghost wide" id="btnPickCrop">換大類或品項</button>
 
-    <div class="secTitle">顯示哪些市場（最多 ${MAX_MK} 個）</div>
+    <div class="secTitle">顯示哪些市場（已選 ${S.markets.length} 個）</div>
+    <div class="mkTools">
+      <button class="btn ghost wide" id="btnMkAll" ${S.mkRank.length ? '' : 'disabled'}>
+        ${已全選市場 ? `取消全選，恢復交易量前 ${DEFAULT_MK} 大` : `全選全部 ${S.mkRank.length} 個市場`}
+      </button>
+    </div>
     <div class="mkGrid">${市場鈕}</div>
     <div class="setRow">
-      <p>只列出這個品項近 ${FETCH_DAYS} 天有交易的市場，依總交易量排序。換品項時會自動挑交易量前 ${MAX_MK} 大的。</p>
+      <p>只列出這個品項近 ${FETCH_DAYS} 天有交易的市場，依總交易量排序。市場選擇沒有數量上限；換品項時先自動挑交易量前 ${DEFAULT_MK} 大，也可按上方按鈕全選。<br><br>選得越多，行情頁的圖表線條與市場卡也會越多，但不會增加 API 請求次數。</p>
     </div>
 
     <div class="secTitle">說明</div>
@@ -1286,6 +1304,15 @@ function 設定畫面() {
 
   $('#btnReload').addEventListener('click', () => 更新(true, false));
   $('#btnPickCrop').addEventListener('click', 開啟作物選單);
+  $('#btnMkAll').addEventListener('click', () => {
+    S.markets = 已全選市場
+      ? S.mkRank.slice(0, DEFAULT_MK).map(m => m.code)
+      : S.mkRank.map(m => m.code);
+    if (S.focus && S.markets.indexOf(S.focus) < 0) S.focus = null;
+    存選擇();
+    toast(已全選市場 ? `已恢復交易量前 ${DEFAULT_MK} 大市場` : `已全選 ${S.markets.length} 個市場`);
+    畫面();
+  });
   $('#btnSupport').addEventListener('click', () => {
     S.sheet = 'support';
     畫面();
@@ -1335,7 +1362,6 @@ function 設定畫面() {
         S.markets.splice(i, 1);
         if (S.focus === mc) S.focus = null;
       } else {
-        if (S.markets.length >= MAX_MK) { toast(`最多同時看 ${MAX_MK} 個市場`); return; }
         S.markets.push(mc);
       }
       存選擇();
@@ -1392,7 +1418,7 @@ function 建立版本選單(host) {
       <div class="releaseList">
         <article class="releaseItem">
           <div class="releaseHead"><span class="releaseVer">v1.8.2</span><span class="releaseSeason">本次收成</span></div>
-          <p>第二層品項可用名稱／代碼搜尋，也補齊當日未成交的完整品項；牛番茄、進口酪梨都找得到。</p>
+          <p>第二層品項可用名稱／代碼搜尋，並補齊完整品項；市場選擇也解除上限，可一鍵全選。</p>
         </article>
         <article class="releaseItem">
           <div class="releaseHead"><span class="releaseVer">v1.8.1</span><span class="releaseSeason">上一季</span></div>
