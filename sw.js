@@ -1,11 +1,11 @@
-/* 波波酪梨 · 農漁產行情  sw.js  v1.8.2
+/* 波波酪梨 · 農產行情  sw.js  v1.7.0
  * 改版時務必更新 CACHE 名稱，否則舊快取不會被淘汰。
  * 快取名稱用 probro-market- 前綴，與出貨通知的 probro-ship- 區隔。
  */
-const CACHE = 'probro-market-v1.8.2-r5';
+const CACHE = 'probro-market-v1.7.0';
 
 const ASSETS = [
-  './', './index.html', './crop-catalog.js', './app.js', './manifest.json',
+  './', './index.html', './app.js', './manifest.json',
   './icon-192.png', './icon-512.png', './icon-512-maskable.png'
 ];
 
