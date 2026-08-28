@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.7.0
+/* 波波酪梨 · 農產品行情  app.js  v1.7.1
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -12,7 +12,7 @@
  */
 'use strict';
 
-const VERSION = 'v1.7.0';
+const VERSION = 'v1.7.1';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
