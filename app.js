@@ -1,8 +1,7 @@
-/* 波波酪梨 · 農漁產品行情  app.js  v1.8.2
+/* 波波酪梨 · 農產品行情  app.js  v1.7.0
  * ─────────────────────────────────────────────────────────
- * 資料來源：農業部農業資料開放平臺「農產品交易行情」與「漁產品交易行情」
+ * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
- *   https://data.moa.gov.tw/Service/OpenData/FromM/AquaticTransData.aspx
  * 不需 API 金鑰，回應標頭帶 access-control-allow-origin: *，前端可直接讀取。
  * 本 App 不經 GAS、不經 Firebase，完全獨立於訂單系統。
  *
@@ -10,43 +9,22 @@
  * v1.2.0：視覺改用訂購網站 style.css v8 的設計語彙。
  * v1.4.0：補上 Page/Next 分頁處理（先前只讀第一頁，資料會被安靜截斷）。
  * v1.6.0：色票重整。原本數字的對比只有 3.56:1（全畫面最弱），現為 6.00:1。
- * v1.7.0：加入「隨喜支持」說明與 LINE 好友導流。
- * v1.8.0：加入水果／蔬菜／漁產雙層選單、漁產品行情與啟動更新摘要。
- * v1.8.1：調整部分文字說明。
- * v1.8.2：第二層品項加入名稱／代碼搜尋，選項同步顯示品項代碼。
- * v1.8.2 修正：品項選單合併官方完整代碼表，不再漏掉當日未成交品項。
  */
 'use strict';
 
-const VERSION = 'v1.8.2';
+const VERSION = 'v1.7.0';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
-const FISH_API = 'https://data.moa.gov.tw/Service/OpenData/FromM/AquaticTransData.aspx';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
-const DEFAULT_MK = 3;           // 換品項時先選交易量前三大；使用者之後可不限數量或直接全選
-const CROP_CATALOG = window.PROBRO_CROP_CATALOG || {}; // 官方完整蔬果品名代碼表，由 crop-catalog.js 提供
-
-/* 從 LINE App 的「顯示行動條碼」頁面按「複製連結」，貼到下方引號內。
-   空白時支持說明仍可預覽，但「開啟 LINE」按鈕會停用，避免導向錯誤帳號。 */
-const LINE_FRIEND_URL = 'https://line.me/ti/p/7OorqI3Zzk';
+const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
 
 /* 快取結構版本。只要 寫快取() 存的欄位有增減就必須 +1，
    否則新版程式讀到舊格式，缺少的欄位會是 undefined —— 不會報錯，只會安靜地判斷錯誤。 */
-const CACHE_VER = 3;
+const CACHE_VER = 2;
 
-const CATEGORY = {
-  fruit:     { name: '水果', source: 'agri', tc: 'N05' },
-  vegetable: { name: '蔬菜', source: 'agri', tc: 'N04' },
-  fish:      { name: '漁產', source: 'fish', tc: null }
-};
-const CROP_DEFAULT = { code: 'G3', name: '酪梨', category: 'fruit' };
-// 多市場色盤使用偏深色，讓走勢線在米白底上仍清楚，選取按鈕上的白字也看得見。
-// 一般蔬果市場約十多個；若未來超過色盤長度才循環使用。
-const SLOT = [
-  '#4A6733', '#B5832F', '#2C3722', '#9C4535', '#2F6B73',
-  '#6E4F8A', '#406A9C', '#8A5A36', '#7B3F61', '#3F7A5D',
-  '#6F642E', '#4E567C', '#9A5E25', '#3A6861', '#7A4C3C',
-  '#516B3F', '#5B4773', '#346278', '#8C4F55', '#5B6330'
-];
+const CROP_DEFAULT = { code: 'G3', name: '酪梨' };
+// 圖表三色。兩兩亮度比 1.91 / 1.96 / 3.73，疊在同一張圖上分得開。
+// 舊組合的主綠與褐色只差 1.06:1，實質上是同一階。
+const SLOT = ['#4A6733', '#B5832F', '#2C3722'];   // 主行動綠 / 琥珀 / 深墨綠
 
 const LS = {
   crop:   'probroMarketCrop',
@@ -59,15 +37,12 @@ const LS = {
    改成：手上還沒有今天的資料就繼續試，已經拿到就放慢。 */
 const MIN_GAP = 30 * 60 * 1000;               // 兩次自動抓取的最短間隔
 const MAX_AGE = 6 * 60 * 60 * 1000;           // 就算已有今日資料，超過這個時間仍重抓一次
-const LIST_TTL = 24 * 60 * 60 * 1000;         // 成交量排序每天更新；完整代碼表不依賴這份快取
-const LIST_CACHE_VER = 2;                      // v2 起清單包含當日未成交的完整代碼品項
+const LIST_TTL = 30 * 24 * 60 * 60 * 1000;    // 作物清單一個月重抓一次
 
 /* ── 狀態 ──────────────────────────────────────────────── */
 const S = {
   crop: { ...CROP_DEFAULT },
-  category: CROP_DEFAULT.category,
-  pickCategory: CROP_DEFAULT.category,
-  markets: [],        // 選定的市場代號，不限數量
+  markets: [],        // 選定的市場代號，最多 3 個
   mkName: {},         // 代號 → 名稱
   mkRank: [],         // [{code, name, qty}]，依總交易量遞減
   coverage: null,     // API 這條管線更新到哪一天（含休市列）
@@ -76,7 +51,7 @@ const S = {
   rows: [],           // [{d, mc, up, mid, low, avg, qty}]
   fetchedAt: null,
   days: 7,
-  focus: null,        // null＝多市場比較；市場代號＝單一市場價格帶
+  focus: null,        // null＝三市比較；市場代號＝單一市場價格帶
   metric: 'avg',     // 比較模式：avg/mid/up/low/qty ｜ 單市模式：band/qty
   loading: false,
   err: '',
@@ -84,13 +59,11 @@ const S = {
   cropList: [],       // [{code, name, qty}]
   listLoading: false,
   listErr: '',
-  listRequest: 0,
-  sheet: null,        // 'crop' ｜ 'support' ｜ 'release' ｜ 'install' ｜ null
+  sheet: null,        // 'crop' ｜ null
   q: '',              // 作物搜尋字串
   open: {},           // 設定頁各摺疊區塊的開合狀態
   armClear: false,    // 清除鈕的兩段式確認
-  armTimer: null,
-  installPrompt: null
+  armTimer: null
 };
 
 /* ── 小工具 ────────────────────────────────────────────── */
@@ -111,17 +84,11 @@ function toast(msg, ms = 1900) {
 
 /** Date → 民國字串，例：2026-08-21 → "115.08.21" */
 const 民國 = d => `${d.getFullYear() - 1911}.${p2(d.getMonth() + 1)}.${p2(d.getDate())}`;
-const 民國緊密 = d => `${d.getFullYear() - 1911}${p2(d.getMonth() + 1)}${p2(d.getDate())}`;
 
 /** 民國字串 → ISO 日期；格式不符回 null（休市列的 "-" 會在這裡被擋掉） */
 function 西元(s) {
   const m = /^(\d{2,3})\.(\d{1,2})\.(\d{1,2})$/.exec(String(s || '').trim());
   return m ? `${(+m[1]) + 1911}-${p2(+m[2])}-${p2(+m[3])}` : null;
-}
-
-function 西元緊密(s) {
-  const m = /^(\d{2,3})(\d{2})(\d{2})$/.exec(String(s || '').trim());
-  return m ? `${(+m[1]) + 1911}-${m[2]}-${m[3]}` : null;
 }
 
 const 月日 = iso => iso ? iso.slice(5).replace('-', '/') : '';
@@ -142,7 +109,9 @@ function 公斤(n) {
   return Math.round(n).toLocaleString('zh-TW') + ' kg';
 }
 
-const 色 = i => SLOT[((i % SLOT.length) + SLOT.length) % SLOT.length];
+const 色 = i => SLOT[i] || SLOT[0];
+
+const MAX_PAGE = 30;   // 保險絲：正常不會用到，避免 Next 永遠為 true 時無限迴圈
 
 async function 取一頁(url) {
   const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' });
@@ -153,24 +122,19 @@ async function 取一頁(url) {
 }
 
 /**
- * 公開 API 現在對未登入請求只開放第一頁；資料超過上限時，改把日期範圍
- * 對半切小後分別查詢。這樣仍能完整取得熱門品項的 55 天行情，不碰受限的 Page=2。
+ * 依 API 文件：回傳結果 Next=true 時要帶 Page 參數續抓。
+ * 只讀第一頁的話，資料會被安靜截斷——不會報錯，只是變少，很難察覺。
  */
-async function 取農產區間(start, end, params = '') {
-  const url = `${API}?Start_time=${民國(start)}&End_time=${民國(end)}${params}`;
-  const r = await 取一頁(url);
-  if (!r.next) return r.data;
-
-  const days = Math.round((end.getTime() - start.getTime()) / 864e5);
-  if (days <= 0) {
-    console.warn('單日農產資料超過公開 API 上限，保留第一頁');
-    return r.data;
+async function 取JSON(base) {
+  let out = [];
+  for (let page = 1; page <= MAX_PAGE; page++) {
+    const url = page > 1 ? `${base}&Page=${page}` : base;
+    const r = await 取一頁(url);
+    out = out.concat(r.data);
+    if (!r.next) return out;
   }
-  const leftEnd = new Date(start.getTime() + Math.floor(days / 2) * 864e5);
-  const rightStart = new Date(leftEnd.getTime() + 864e5);
-  const left = await 取農產區間(start, leftEnd, params);
-  const right = await 取農產區間(rightStart, end, params);
-  return left.concat(right);
+  console.warn('分頁超過 ' + MAX_PAGE + ' 頁，已停止續抓');
+  return out;
 }
 
 /* ── 行情資料 ──────────────────────────────────────────── */
@@ -183,65 +147,11 @@ async function 取農產區間(start, end, params = '') {
  * 填越多越容易整組落空。
  */
 async function 抓行情(crop) {
-  if ((CATEGORY[crop.category] || CATEGORY.fruit).source === 'fish') return 抓漁產行情(crop);
   const end = new Date();
   const start = new Date(end.getTime() - FETCH_DAYS * 864e5);
-  const params = `&CropName=${encodeURIComponent(crop.name)}`;
-  return 整理(await 取農產區間(start, end, params), crop.code);
-}
-
-const FISH_PAGE = 1000;
-const FISH_MAX_PAGE = 12;
-
-async function 取漁JSON(params) {
-  let out = [];
-  for (let page = 0; page < FISH_MAX_PAGE; page++) {
-    const url = `${FISH_API}?$top=${FISH_PAGE}&$skip=${page * FISH_PAGE}&${params}`;
-    const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' });
-    if (!res.ok) throw new Error('漁產資料回應 ' + res.status);
-    const data = await res.json();
-    if (!Array.isArray(data)) throw new Error('漁產資料格式不符預期');
-    out = out.concat(data);
-    if (data.length < FISH_PAGE) return out;
-  }
-  console.warn('漁產資料超過分頁上限，已停止續抓');
-  return out;
-}
-
-async function 抓漁產行情(crop) {
-  const end = new Date();
-  const start = new Date(end.getTime() - FETCH_DAYS * 864e5);
-  const params = `StartDate=${民國緊密(start)}&EndDate=${民國緊密(end)}`
-    + `&TypeNo=${encodeURIComponent(crop.code)}`;
-  return 整理漁產(await 取漁JSON(params), crop.code);
-}
-
-function 整理漁產(data, code) {
-  const map = new Map();
-  const name = {}, 市場日 = {}, 全日期 = {};
-  let 涵蓋 = null;
-  data.forEach(o => {
-    if (String(o['品種代碼']) !== String(code)) return;
-    const d = 西元緊密(o['交易日期']);
-    const rawName = String(o['市場名稱'] || '').trim();
-    const mc = rawName.replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '').slice(0, 10);
-    if (!d || !mc) return;
-    全日期[d] = 1;
-    if (!涵蓋 || d > 涵蓋) 涵蓋 = d;
-    (市場日[mc] = 市場日[mc] || {})[d] = 1;
-    name[mc] = mc;
-    const row = {
-      d, mc,
-      up: +o['上價'], mid: +o['中價'], low: +o['下價'],
-      avg: +o['平均價'], qty: +o['交易量']
-    };
-    if (!(row.qty > 0) && !(row.avg > 0)) return;
-    const key = d + '|' + mc;
-    const prev = map.get(key);
-    if (!prev || row.qty > prev.qty) map.set(key, row);
-  });
-  const rows = [...map.values()].sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
-  return { rows, name, 涵蓋, 市場日, 全日期: Object.keys(全日期).sort() };
+  const url = `${API}?Start_time=${民國(start)}&End_time=${民國(end)}`
+            + `&CropName=${encodeURIComponent(crop.name)}`;
+  return 整理(await 取JSON(url), crop.code);
 }
 
 /**
@@ -309,7 +219,7 @@ function 算市場排行() {
 function 校正市場選擇(重設) {
   const 有 = new Set(S.mkRank.map(m => m.code));
   S.markets = 重設 ? [] : S.markets.filter(mc => 有.has(mc));
-  if (!S.markets.length) S.markets = S.mkRank.slice(0, DEFAULT_MK).map(m => m.code);
+  if (!S.markets.length) S.markets = S.mkRank.slice(0, MAX_MK).map(m => m.code);
   if (S.focus && S.markets.indexOf(S.focus) < 0) S.focus = null;   // 焦點市場被移除就回到比較模式
   存選擇();
 }
@@ -317,44 +227,15 @@ function 校正市場選擇(重設) {
 /* ── 作物清單 ──────────────────────────────────────────── */
 
 /**
- * 把最近交易日清單與官方完整代碼表合併：
- *   - 有成交的品項保留交易量排序，放在前面。
- *   - 當日沒成交的品項仍可依名稱或代碼搜尋，放在後面並以 qty=0 標示。
- * API 偶爾出現代碼表尚未收錄的新項目時，也會保留 API 回傳的項目。
+ * 不帶 CropName 查詢會回傳當期全品項，資料量很大，所以一次只查一天，
+ * 從今天往回試，遇到第一個正常開市的日子就停。清單快取一個月。
  */
-function 合併完整作物清單(category, recent = []) {
-  const catalog = CROP_CATALOG[category];
-  if (!Array.isArray(catalog) || !catalog.length) return recent;
-
-  const active = recent.map(c => ({ ...c, qty: +c.qty || 0 }));
-  const seen = new Set(active.map(c => String(c.code)));
-  const inactive = [];
-  catalog.forEach(entry => {
-    if (!Array.isArray(entry) || entry.length < 2) return;
-    const code = String(entry[0] || '').trim();
-    const name = String(entry[1] || '').trim();
-    if (!code || !name || seen.has(code)) return;
-    seen.add(code);
-    inactive.push({ code, name, qty: 0 });
-  });
-  return active.concat(inactive);
-}
-
-/**
- * 不帶 CropName 查詢會回傳當期全品項，資料量很大，所以一次只查一天。
- * 最近交易日資料只負責排序；可搜尋的品項以官方完整代碼表補齊。
- */
-async function 抓作物清單(category) {
-  if ((CATEGORY[category] || CATEGORY.fruit).source === 'fish') return 抓漁產清單();
-  const tc = (CATEGORY[category] || CATEGORY.fruit).tc;
+async function 抓作物清單() {
   for (let back = 0; back < 7; back++) {
     const d = new Date(Date.now() - back * 864e5);
-    // 先在伺服器端依大類過濾。這一頁只用來排近期品項；完整性由本機代碼表負責。
-    const r = await 取一頁(`${API}?Start_time=${民國(d)}&End_time=${民國(d)}&TcType=${tc}`);
-    const data = r.data;
+    const data = await 取JSON(`${API}?Start_time=${民國(d)}&End_time=${民國(d)}`);
     const tot = {}, name = {};
     data.forEach(o => {
-      if (String(o.TcType || '') !== tc) return;
       const code = String(o.CropCode || '').trim();
       const nm = String(o.CropName || '').trim();
       if (!code || code === '-' || !nm || nm === '休市') return;   // 休市列
@@ -364,71 +245,31 @@ async function 抓作物清單(category) {
     const list = Object.keys(tot)
       .map(code => ({ code, name: name[code], qty: tot[code] }))
       .sort((a, b) => b.qty - a.qty);
-    if (list.length > 15) return 合併完整作物清單(category, list); // 避開尚未完整發布的半套清單
+    if (list.length > 30) return list;               // 這天有正常開市
   }
-  const catalogOnly = 合併完整作物清單(category, []);
-  if (catalogOnly.length) return catalogOnly;
-  throw new Error('最近七天都查不到交易資料，完整品項表也無法載入');
+  throw new Error('最近七天都查不到交易資料');
 }
 
-async function 抓漁產清單() {
-  for (let back = 0; back < 7; back++) {
-    const d = new Date(Date.now() - back * 864e5);
-    const day = 民國緊密(d);
-    const data = await 取漁JSON(`StartDate=${day}&EndDate=${day}`);
-    const tot = {}, name = {};
-    data.forEach(o => {
-      const code = String(o['品種代碼'] || '').trim();
-      const nm = String(o['魚貨名稱'] || '').trim();
-      if (!code || !nm) return;
-      name[code] = nm;
-      tot[code] = (tot[code] || 0) + (+o['交易量'] || 0);
-    });
-    const list = Object.keys(tot)
-      .map(code => ({ code, name: name[code], qty: tot[code] }))
-      .sort((a, b) => b.qty - a.qty);
-    if (list.length > 15) return list;
-  }
-  throw new Error('最近七天都查不到漁產交易資料');
-}
-
-const 清單鍵 = (base, category) => `${base}:v${LIST_CACHE_VER}:${category}`;
-
-async function 確保作物清單(category = S.pickCategory) {
+async function 確保作物清單() {
   if (S.cropList.length) return;
-  const request = ++S.listRequest;
-  const at = +(localStorage.getItem(清單鍵(LS.listAt, category)) || 0);
+  const at = +(localStorage.getItem(LS.listAt) || 0);
   if (Date.now() - at < LIST_TTL) {
     try {
-      const c = JSON.parse(localStorage.getItem(清單鍵(LS.list, category)) || '[]');
-      if (Array.isArray(c) && c.length && request === S.listRequest && category === S.pickCategory) {
-        S.cropList = c; 畫面(); return;
-      }
+      const c = JSON.parse(localStorage.getItem(LS.list) || '[]');
+      if (Array.isArray(c) && c.length) { S.cropList = c; 畫面(); return; }
     } catch (e) { /* 快取壞了就重抓 */ }
   }
   S.listLoading = true; S.listErr = ''; 畫面();
   try {
-    const list = await 抓作物清單(category);
-    if (request !== S.listRequest || category !== S.pickCategory) return;
-    S.cropList = list;
+    S.cropList = await 抓作物清單();
     try {
-      localStorage.setItem(清單鍵(LS.list, category), JSON.stringify(S.cropList));
-      localStorage.setItem(清單鍵(LS.listAt, category), String(Date.now()));
+      localStorage.setItem(LS.list, JSON.stringify(S.cropList));
+      localStorage.setItem(LS.listAt, String(Date.now()));
     } catch (e) { /* 容量滿，不影響本次 */ }
   } catch (e) {
-    if (request !== S.listRequest || category !== S.pickCategory) return;
-    // 沒網路時仍讓使用者從隨 App 附帶的完整代碼表選品項；只會缺少近期成交量排序。
-    const catalogOnly = 合併完整作物清單(category, []);
-    if (catalogOnly.length) {
-      S.cropList = catalogOnly;
-      S.listErr = '';
-    } else {
-      S.listErr = String(e.message || e);
-    }
+    S.listErr = String(e.message || e);
   } finally {
-    if (request === S.listRequest && category === S.pickCategory) {
-      S.listLoading = false; 畫面();
-    }
+    S.listLoading = false; 畫面();
   }
 }
 
@@ -436,16 +277,11 @@ async function 確保作物清單(category = S.pickCategory) {
 function 讀選擇() {
   try {
     const c = JSON.parse(localStorage.getItem(LS.crop) || 'null');
-    if (c && c.code && c.name) {
-      const category = CATEGORY[c.category] ? c.category : 'fruit';
-      S.crop = { code: String(c.code), name: String(c.name), category };
-      S.category = category;
-      S.pickCategory = category;
-    }
+    if (c && c.code && c.name) S.crop = { code: String(c.code), name: String(c.name) };
   } catch (e) { /* 用預設 */ }
   try {
     const m = JSON.parse(localStorage.getItem(LS.mkts) || 'null');
-    if (Array.isArray(m)) S.markets = m.map(String);
+    if (Array.isArray(m)) S.markets = m.slice(0, MAX_MK).map(String);
   } catch (e) { /* 用自動挑選 */ }
 }
 
@@ -462,7 +298,7 @@ function 讀快取() {
     // 快取同時綁定「結構版本」與「作物」：
     // 版本不符 → 舊格式缺欄位，寧可重抓；作物不符 → 會顯示上一個作物的價格
     if (!c || c.v !== CACHE_VER) return false;
-    if (c.crop !== S.crop.code || c.category !== S.category || !Array.isArray(c.rows) || !c.rows.length) return false;
+    if (c.crop !== S.crop.code || !Array.isArray(c.rows) || !c.rows.length) return false;
     S.rows = c.rows;
     S.mkName = c.name || {};
     S.coverage = c.cov || null;
@@ -477,7 +313,7 @@ function 寫快取() {
   try {
     localStorage.setItem(LS.rows, JSON.stringify({
       v: CACHE_VER,
-      crop: S.crop.code, category: S.category, rows: S.rows, name: S.mkName, cov: S.coverage,
+      crop: S.crop.code, rows: S.rows, name: S.mkName, cov: S.coverage,
       md: S.mkDates, ad: S.allDates, at: S.fetchedAt
     }));
   } catch (e) { /* 略 */ }
@@ -511,19 +347,6 @@ function 資料落差() {
     const mine = S.rows.filter(r => r.mc === mc);
     return { mc, name: S.mkName[mc] || mc, d: mine.length ? mine[mine.length - 1].d : null };
   });
-
-  // 漁產資料沒有「休市列」，只能忠實呈現各市場實際出現的最新交易日。
-  if (S.category === 'fish') {
-    const dates = 各.map(x => x.d).filter(Boolean).sort();
-    if (dates.length && new Set(dates).size > 1) {
-      return { 類: '休市', 文: `各魚市場最新交易：${各.map(x =>
-        `${x.name} ${x.d ? 月日(x.d) : '—'}`).join('　')}` };
-    }
-    if (S.coverage && S.coverage < 今天ISO()) {
-      return { 類: '落後', 文: `漁產資料最新只到 ${月日(S.coverage)}，尚未發布之後的交易` };
-    }
-    return null;
-  }
 
   // ① 缺漏：所有選定市場在那幾天都完全沒紀錄
   const 缺 = all.filter(d => d > 交 && S.markets.length &&
@@ -587,7 +410,7 @@ async function 更新(手動, 重設市場) {
     算市場排行();
     校正市場選擇(重設市場);
     寫快取();
-    if (手動) toast(S.rows.length ? '已更新' : `這個品項近 ${FETCH_DAYS} 天沒有交易紀錄`, 2400);
+    if (手動) toast(S.rows.length ? '已更新' : '這個作物近 40 天沒有交易紀錄', 2400);
   } catch (e) {
     S.err = String(e.message || e);
     if (手動) toast('更新失敗\n' + S.err, 2600);
@@ -597,10 +420,8 @@ async function 更新(手動, 重設市場) {
   }
 }
 
-function 換作物(code, name, category = S.pickCategory) {
-  S.category = CATEGORY[category] ? category : 'fruit';
-  S.pickCategory = S.category;
-  S.crop = { code, name, category: S.category };
+function 換作物(code, name) {
+  S.crop = { code, name };
   S.rows = []; S.mkName = {}; S.mkRank = []; S.markets = [];
   S.fetchedAt = null; S.sheet = null; S.q = '';
   存選擇();
@@ -655,11 +476,16 @@ function 好刻度(range, 段數) {
   return step * mag;
 }
 
-/* 畫布幾何：PR 要留得下最右邊的日期標籤 */
-const GEO = { W: 340, H: 172, PL: 40, PR: 14, PT: 12, PB: 26 };
+/* 畫布幾何。桌機用更寬的 viewBox：同樣 30 個點，寬畫布才看得出形狀。
+   PR 要留得下最右邊的日期標籤。 */
+const 寬螢幕 = () => window.matchMedia('(min-width:900px)').matches;
+const 幾何 = () => 寬螢幕()
+  ? { W: 760, H: 300, PL: 54, PR: 22, PT: 18, PB: 34, 標籤數: 6 }
+  : { W: 340, H: 172, PL: 40, PR: 14, PT: 12, PB: 26, 標籤數: 4 };
 
 /** 共用外殼：格線、日期標籤、游標線、感應區 */
 function 組圖(dates, series, 額外, opts) {
+  const GEO = 幾何();
   const { W, H, PL, PR, PT, PB } = GEO;
   const iw = W - PL - PR, ih = H - PT - PB;
 
@@ -694,9 +520,10 @@ function 組圖(dates, series, 額外, opts) {
   }
 
   const 末 = dates.length - 1;
-  const labIdx = dates.length <= 4
+  const n標 = Math.min(GEO.標籤數, dates.length);
+  const labIdx = dates.length <= n標
     ? dates.map((_, i) => i)
-    : [0, Math.round(末 / 3), Math.round(末 * 2 / 3), 末];
+    : Array.from({ length: n標 }, (_, k) => Math.round(末 * k / (n標 - 1)));
   [...new Set(labIdx)].forEach(i => {
     const anc = i === 0 ? 'start' : i === 末 ? 'end' : 'middle';
     g += `<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${anc}"
@@ -731,7 +558,7 @@ function 組圖(dates, series, 額外, opts) {
             fill="${s.color}" stroke="#FDFBF7" stroke-width="2" opacity="0"/>`;
   });
 
-  g += `<rect id="scrub" x="${PL}" y="0" width="${iw}" height="${GEO.H}" fill="transparent"/>`;
+  g += `<rect id="scrub" x="${PL}" y="0" width="${iw}" height="${H}" fill="transparent"/>`;
 
   S.chart = { dates, series, PL, iw, W, X, Y, 末, unit: opts.unit };
 
@@ -760,11 +587,9 @@ function 走勢圖(rows) {
 
   let html;
   if (!S.focus) {
-    /* 多市場比較：市場很多時把線稍微畫細，減少彼此遮蓋 */
-    const crowded = S.markets.length > 6;
+    /* 三市比較：一個指標、三條線 */
     const series = S.markets.map((mc, i) => ({
-      name: S.mkName[mc] || mc, color: 色(i), pts: 取(mc, S.metric),
-      w: crowded ? 1.45 : 2.2, op: crowded ? 0.9 : 1
+      name: S.mkName[mc] || mc, color: 色(i), pts: 取(mc, S.metric)
     }));
     html = 組圖(dates, series, null, {
       zero: S.metric === 'qty',
@@ -838,8 +663,7 @@ function 更新讀數(i) {
     const v = s.pts[i];
     const txt = v == null ? '休市' : (c.unit === '交易量' ? 公斤(v) : 錢(v));
     return `<span class="${v == null ? 'off' : ''}">
-      <i style="background:${s.color}"></i><span class="roName">${esc(s.name)}</span>
-      <b class="num">${txt}</b></span>`;
+      <i style="background:${s.color}"></i>${esc(s.name)} <b class="num">${txt}</b></span>`;
   }).join('');
 
   box.innerHTML = `<div class="roDate">${月日(d)}（${週(d)}）
@@ -948,7 +772,7 @@ function 畫面() {
   });
 
   const cb = $('#cropBtn');
-  if (cb) cb.innerHTML = `${esc((CATEGORY[S.category] || CATEGORY.fruit).name)} · ${esc(S.crop.name)}<span class="caret">▾</span>`;
+  if (cb) cb.innerHTML = `${esc(S.crop.name)}<span class="caret">▾</span>`;
 
   行情畫面();
   明細畫面();
@@ -980,7 +804,7 @@ function 行情畫面() {
     <button class="chip ${S.days === 30 ? 'on' : ''}" data-days="30">近 30 個交易日</button>
   </div>
   <div class="chips">
-    <button class="chip ${!S.focus ? 'on' : ''}" data-focus="">市場比較（${S.markets.length}）</button>
+    <button class="chip ${!S.focus ? 'on' : ''}" data-focus="">三市比較</button>
     ${市場鈕}
   </div>
   <div class="chips">
@@ -992,7 +816,7 @@ function 行情畫面() {
     h += S.loading
       ? '<div class="empty">正在取得行情…</div>'
       : `<div class="empty">${esc(S.crop.name)} 近 ${FETCH_DAYS} 天沒有交易紀錄。<br>
-           點上方品項名稱換一個，或到「設定」按重新整理。</div>`;
+           點上方作物名稱換一個，或到「設定」按重新整理。</div>`;
     box.innerHTML = h;
     綁定行情事件(box);
     return;
@@ -1007,9 +831,6 @@ function 行情畫面() {
   }
   const 差 = 資料落差();
   if (差) h += `<div class="gapLine ${差.類 === '休市' ? '' : 'warn'}">${esc(差.文)}</div>`;
-  if (!S.focus && S.markets.length > 6) {
-    h += `<div class="gapLine">目前同時比較 ${S.markets.length} 個市場，線條較密；可點上方任一市場名稱，單獨查看價格帶。</div>`;
-  }
 
   h += 走勢圖(rows);
   h += '<div class="secTitle">最新一個交易日</div>';
@@ -1018,7 +839,9 @@ function 行情畫面() {
     <div class="blRow"><span class="blSym"><i class="blTri"></i></span>均價（即上方大字）</div>
     <div class="blRow"><span class="blSym"><i class="blLine"></i></span>中價</div>
   </div>`;
+  h += '<div class="mkRow">';
   S.markets.forEach((mc, i) => { h += 市場卡(mc, i, rows); });
+  h += '</div>';
 
   box.innerHTML = h;
   綁定走勢圖();
@@ -1045,10 +868,9 @@ function 明細畫面() {
 
   const dates = 期間日期(rows).reverse();
   let h = `<div class="notice calm">${esc(S.crop.name)}．近 ${S.days} 個交易日，單位為元/公斤。
-    ${S.category === 'fish'
-      ? '上／中／下價依漁業署公開資料原值呈現；各魚市場的分級與交易情況可能不同。'
-      : '上／中／下價分別是當日最貴 20%、中間 60%、最便宜 20% 交易量的平均。'}</div>`;
+    上／中／下價分別是當日最貴 20%、中間 60%、最便宜 20% 交易量的平均。</div>`;
 
+  h += '<div class="dayGrid">';
   dates.forEach(d => {
     const day = rows.filter(r => r.d === d);
     const tot = day.reduce((s, r) => s + (r.qty > 0 ? r.qty : 0), 0);
@@ -1090,8 +912,6 @@ function 摺疊(key, 標題, 內容) {
 function 設定畫面() {
   const box = $('#setupBody');
   const 天數 = 期間日期(S.rows).length;
-  const isFish = S.category === 'fish';
-  const 已安裝 = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
   // 用最新一筆真實資料現場驗算，比寫死的例子可信，也不會過期
   let 範例 = '';
@@ -1113,23 +933,8 @@ function 設定畫面() {
           >${esc(m.name)} <span class="num">${公斤(m.qty)}</span></button>`;
       }).join('')
     : '<div class="empty" style="padding:14px">還沒有資料</div>';
-  const 已全選市場 = S.mkRank.length > 0
-    && S.markets.length === S.mkRank.length
-    && S.mkRank.every(m => S.markets.indexOf(m.code) >= 0);
 
-  const 價格說明 = isFish ? `
-    <div class="setRow">
-      <h3>漁產的上價、中價、下價</h3>
-      <p>畫面直接呈現漁業署「漁產品交易行情」提供的上價、中價、下價與平均價。不同魚市場、魚種與規格的交易組成可能不同，不套用蔬果的 20／60／20 解釋。</p>
-    </div>
-    <div class="setRow">
-      <h3>怎麼看比較實用</h3>
-      <p><b>平均價</b>適合快速掌握整體成交水準；<b>中價</b>可觀察中間行情；上價與下價拉得越開，代表當日成交價格分布越寬。<br><br>跨市場比較時，也要留意魚貨規格與交易量不同。</p>
-    </div>
-    <div class="setRow">
-      <h3>近 N 日均價</h3>
-      <p>本 App 以各日交易量加權，不讓少量交易日和大量交易日一樣重。這是方便看趨勢的整理值，不取代魚市場原始資料。</p>
-    </div>` : `
+  const 價格說明 = `
     <div class="setRow">
       <h3>上價、中價、下價</h3>
       <p>把當天所有成交依價格由高排到低，再依<b>交易量</b>切成三段，每段各自算平均：<br><br>
@@ -1163,19 +968,7 @@ function 設定畫面() {
          不這樣算的話，只成交 300 公斤的冷門日，會跟成交 2 萬公斤的主力日一樣重要。</p>
     </div>`;
 
-  const 更新說明 = isFish ? `
-    <div class="setRow">
-      <h3>漁產行情什麼時候更新</h3>
-      <p>漁業署資料每日更新，但各魚市場的交易日與發布時間不一定相同。App 會保留上次成功資料，並在啟動或超過更新間隔後重試；也可以隨時按「重新整理」。</p>
-    </div>
-    <div class="setRow">
-      <h3>各市場日期不同是正常的嗎</h3>
-      <p>可能是休市、當天沒有這個魚種，或該市場資料尚未發布。漁產資料沒有另外提供休市列，因此 App 只會列出各市場實際出現的最新交易日，不會把缺少紀錄直接判定成休市或漏資料。</p>
-    </div>
-    <div class="setRow">
-      <h3>近 N 個交易日</h3>
-      <p>只計算實際有成交紀錄的日期，休市或沒有該魚種的日子不佔一格，讓走勢圖保有固定數量的資料點。</p>
-    </div>` : `
+  const 更新說明 = `
     <div class="setRow">
       <h3>行情站什麼時候發布</h3>
       <p>行情站<b>當日下午</b>就會陸續發佈當天的成交資料，時間不固定，同一天可能補上多次。<br><br>
@@ -1208,18 +1001,18 @@ function 設定畫面() {
       <h3>匿名統計</h3>
       <p>本 App 使用 <b>Cloudflare Web Analytics</b> 統計匿名瀏覽數，用來了解有多少人在使用。<br><br>
          <b>不使用 cookie</b>、不做跨站追蹤、不記錄任何可識別個人的資料。<br><br>
-         你選的類別、品項與市場只存在這台裝置的瀏覽器裡，不會傳送到任何地方。</p>
+         你選的作物與市場只存在這台裝置的瀏覽器裡，不會傳送到任何地方。</p>
     </div>`;
 
   const 免責說明 = `
     <div class="setRow">
       <h3>資料未經驗證</h3>
       <p>本 App 直接呈現農業部公開資料，未經加工或驗證，可能因資料源延遲、休市或格式變動而不完整。<br><br>
-         實際交易請以<b>農產品批發市場交易行情站</b>或<b>漁產品全球資訊網</b>原始資料為準。使用者依本 App 內容所做的任何決策，本 App 不負任何責任。</p>
+         實際交易請以<b>農產品批發市場交易行情站</b>原始資料為準。使用者依本 App 內容所做的任何決策，本 App 不負任何責任。</p>
     </div>
     <div class="setRow">
       <h3>資料來源</h3>
-      <p>農業部農業資料開放平臺「農產品交易行情」與漁業署「漁產品交易行情」，依政府資料開放平臺資料使用規範利用。<br><br>
+      <p>農業部農業資料開放平臺「農產品交易行情」，依政府資料開放平臺資料使用規範利用。<br><br>
          本 App 為個人工具，與農業部無關。</p>
     </div>`;
 
@@ -1231,7 +1024,7 @@ function 設定畫面() {
     <div class="secTitle">目前查詢</div>
     <div class="setRow">
       <h3>${esc(S.crop.name)}</h3>
-      <p>${esc((CATEGORY[S.category] || CATEGORY.fruit).name)}品項代號 ${esc(S.crop.code)}．共 <b>${S.rows.length}</b> 筆，涵蓋 <b>${天數}</b> 個交易日。<br>
+      <p>作物代號 ${esc(S.crop.code)}．共 <b>${S.rows.length}</b> 筆，涵蓋 <b>${天數}</b> 個交易日。<br>
          資料源涵蓋至：<b>${S.coverage ? 月日(S.coverage) : '—'}</b><br>
          選定市場最新交易：<br>
          ${S.markets.map(mc => {
@@ -1241,17 +1034,12 @@ function 設定畫面() {
            }).join('<br>') || '　—'}<br>
          最後抓取：<b>${S.fetchedAt ? 時刻(S.fetchedAt) : '尚未更新'}</b></p>
     </div>
-    <button class="btn ghost wide" id="btnPickCrop">換大類或品項</button>
+    <button class="btn ghost wide" id="btnPickCrop">換一個作物</button>
 
-    <div class="secTitle">顯示哪些市場（已選 ${S.markets.length} 個）</div>
-    <div class="mkTools">
-      <button class="btn ghost wide" id="btnMkAll" ${S.mkRank.length ? '' : 'disabled'}>
-        ${已全選市場 ? `取消全選，恢復交易量前 ${DEFAULT_MK} 大` : `全選全部 ${S.mkRank.length} 個市場`}
-      </button>
-    </div>
+    <div class="secTitle">顯示哪些市場（最多 ${MAX_MK} 個）</div>
     <div class="mkGrid">${市場鈕}</div>
     <div class="setRow">
-      <p>只列出這個品項近 ${FETCH_DAYS} 天有交易的市場，依總交易量排序。市場選擇沒有數量上限；換品項時先自動挑交易量前 ${DEFAULT_MK} 大，也可按上方按鈕全選。<br><br>選得越多，行情頁的圖表線條與市場卡也會越多，但不會增加 API 請求次數。</p>
+      <p>只列出這個作物近 ${FETCH_DAYS} 天有交易的市場，依總交易量排序。換作物時會自動挑交易量前 ${MAX_MK} 大的。</p>
     </div>
 
     <div class="secTitle">說明</div>
@@ -1259,26 +1047,6 @@ function 設定畫面() {
     ${摺疊('update',  '資料何時更新',   更新說明)}
     ${摺疊('privacy', '統計與隱私',     隱私說明)}
     ${摺疊('legal',   '免責與來源',     免責說明)}
-
-    <div class="secTitle">安裝到手機 IOS/Android</div>
-    <div class="setRow">
-      <h3>${已安裝 ? '已經住進桌面了' : '像 App 一樣從桌面開啟'}</h3>
-      <p>${已安裝
-        ? '目前正以獨立 App 模式開啟，不會顯示瀏覽器網址列。'
-        : 'Android 可把這個 PWA 安裝到主畫面，擁有自己的圖示、獨立視窗與離線快取。'}</p>
-      <button class="btn wide" id="btnInstall" ${已安裝 ? 'disabled' : ''}>
-        ${已安裝 ? '已安裝完成' : (S.installPrompt ? '安裝到主畫面' : '查看 Android 安裝方法')}
-      </button>
-    </div>
-
-    <div class="secTitle">支持這個小工具</div>
-    <div class="supportCard">
-      <div class="supportMark" aria-hidden="true">♡</div>
-      <h3>買杯咖啡支持☕</h3>
-      <p>如果這個行情工具替你省下一點時間，歡迎請我喝杯咖啡，支持持續維護與更新。</p>
-      <button class="btn wide" id="btnSupport">看看支持方式</button>
-      <div class="supportNote">完全自願，不影響任何功能。</div>
-    </div>
 
     <div class="secTitle">維護</div>
     <button class="dangerBtn ${S.armClear ? 'armed' : ''}" id="btnClear">
@@ -1305,32 +1073,6 @@ function 設定畫面() {
 
   $('#btnReload').addEventListener('click', () => 更新(true, false));
   $('#btnPickCrop').addEventListener('click', 開啟作物選單);
-  $('#btnMkAll').addEventListener('click', () => {
-    S.markets = 已全選市場
-      ? S.mkRank.slice(0, DEFAULT_MK).map(m => m.code)
-      : S.mkRank.map(m => m.code);
-    if (S.focus && S.markets.indexOf(S.focus) < 0) S.focus = null;
-    存選擇();
-    toast(已全選市場 ? `已恢復交易量前 ${DEFAULT_MK} 大市場` : `已全選 ${S.markets.length} 個市場`);
-    畫面();
-  });
-  $('#btnSupport').addEventListener('click', () => {
-    S.sheet = 'support';
-    畫面();
-  });
-  $('#btnInstall').addEventListener('click', async () => {
-    if (S.installPrompt) {
-      const prompt = S.installPrompt;
-      S.installPrompt = null;
-      await prompt.prompt();
-      const choice = await prompt.userChoice;
-      toast(choice.outcome === 'accepted' ? '正在安裝到主畫面' : '這次先不安裝');
-      畫面();
-      return;
-    }
-    S.sheet = 'install';
-    畫面();
-  });
 
   $('#btnClear').addEventListener('click', () => {
     if (!S.armClear) {                       // 破壞性動作要兩段式，誤觸不會直接清光
@@ -1342,14 +1084,10 @@ function 設定畫面() {
     }
     clearTimeout(S.armTimer);
     S.armClear = false;
-    const bases = Object.values(LS);
-    Object.keys(localStorage).forEach(k => {
-      if (bases.some(base => k === base || k.startsWith(base + ':'))) localStorage.removeItem(k);
-    });
+    Object.keys(LS).forEach(k => localStorage.removeItem(LS[k]));
     S.rows = []; S.mkName = {}; S.mkRank = []; S.markets = [];
     S.fetchedAt = null; S.coverage = null; S.cropList = [];
-    S.crop = { ...CROP_DEFAULT }; S.category = CROP_DEFAULT.category;
-    S.pickCategory = CROP_DEFAULT.category; S.focus = null; S.open = {};
+    S.crop = { ...CROP_DEFAULT }; S.focus = null; S.open = {};
     toast('已清除，重新載入中');
     更新(false, true);
   });
@@ -1363,6 +1101,7 @@ function 設定畫面() {
         S.markets.splice(i, 1);
         if (S.focus === mc) S.focus = null;
       } else {
+        if (S.markets.length >= MAX_MK) { toast(`最多同時看 ${MAX_MK} 個市場`); return; }
         S.markets.push(mc);
       }
       存選擇();
@@ -1372,227 +1111,83 @@ function 設定畫面() {
 
 /* ── 作物選單 ──────────────────────────────────────────── */
 function 開啟作物選單() {
-  S.sheet = 'crop'; S.q = ''; S.pickCategory = S.category;
-  S.cropList = []; S.listErr = '';
+  S.sheet = 'crop'; S.q = '';
   畫面();
-  確保作物清單(S.pickCategory);
+  確保作物清單();
 }
 
+/**
+ * 這張選單刻意只在「開啟時」建立一次外殼，之後只換清單內容。
+ * 原因：注音、拼音這類組字型輸入法在組字途中若把 <input> 砍掉重建，
+ * 組字緩衝區會再送出一次，畫面上就變成每個字都打兩遍。
+ * 英數沒有組字階段所以看不出問題——這個 bug 只有中文輸入才會踩到。
+ */
 function 作物選單() {
   const host = $('#sheetHost');
-  if (S.sheet === 'support') { 建立支持選單(host); return; }
-  if (S.sheet === 'release') { 建立版本選單(host); return; }
-  if (S.sheet === 'install') { 建立安裝選單(host); return; }
   if (S.sheet !== 'crop') { host.innerHTML = ''; return; }
-  if (host.querySelector('#sheetBg')) { 填作物清單(); return; }
+  if (host.querySelector('#sheetBg')) { 填作物清單(); return; }   // 已開著，只更新清單
   建立作物選單(host);
 }
 
-function 建立安裝選單(host) {
-  host.innerHTML = `<div class="sheet" id="installBg" role="dialog" aria-modal="true"
-    aria-labelledby="installTitle">
-    <div class="sheetBody">
-      <h2 id="installTitle">把行情種在桌面</h2>
-      <p>Android 手機用 Chrome 開啟網站後：</p>
-      <ol class="supportSteps">
-        <li>點右上角「⋮」選單。</li>
-        <li>選「安裝應用程式」；若看到的是「加到主畫面」，也可以使用。</li>
-        <li>確認安裝，桌面就會多一枚農漁行情圖示。</li>
-      </ol>
-      <div class="supportCaution">GitHub Pages 必須使用 HTTPS，且 icon-192.png、icon-512.png 與 icon-512-maskable.png 都要一併上傳。</div>
-      <button class="btn wide" id="installClose">知道了，返回 App</button>
-    </div>
-  </div>`;
-  $('#installClose').addEventListener('click', () => { S.sheet = null; 畫面(); });
-  $('#installBg').addEventListener('click', e => {
-    if (e.target.id === 'installBg') { S.sheet = null; 畫面(); }
-  });
-}
+function 清單HTML() {
+  if (S.listLoading) return '<div class="empty">正在取得作物清單…<br>第一次載入需要幾秒</div>';
+  if (S.listErr) return `<div class="notice" style="margin:12px">取不到清單：${esc(S.listErr)}</div>`;
 
-function 建立版本選單(host) {
-  if (host.querySelector('#releaseBg')) return;
-  host.innerHTML = `<div class="sheet" id="releaseBg" role="dialog" aria-modal="true"
-    aria-labelledby="releaseTitle">
-    <div class="sheetBody">
-      <h2 id="releaseTitle">田邊的新鮮事</h2>
-      <p class="releaseHello">風一吹，園裡又冒出幾個新芽<br>這是最近三次耕耘的小小收成🌱</p>
-      <div class="releaseList">
-        <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.8.2</span><span class="releaseSeason">本次收成</span></div>
-          <p>第二層品項可用名稱／代碼搜尋，並補齊完整品項；市場選擇也解除上限，可一鍵全選。</p>
-        </article>
-        <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.8.1</span><span class="releaseSeason">上一季</span></div>
-          <p>水果、蔬菜、漁產分畦排好，先挑大類再選品項；🐟魚市場行情也一起開張啦！</p>
-        </article>
-        <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.7.0</span><span class="releaseSeason">前一季</span></div>
-          <p>新增「支持按鈕」，若小工具幫上忙，歡迎透過 LINE 請小農喝杯咖啡☕</p>
-        </article>
-      </div>
-      <button class="btn wide" id="releaseClose">🚚 好，去逛今天的行情</button>
-    </div>
-  </div>`;
-  $('#releaseClose').addEventListener('click', () => { S.sheet = null; 畫面(); });
-}
+  const q = S.q.trim();
+  const list = q
+    ? S.cropList.filter(c => c.name.indexOf(q) >= 0 || c.code.indexOf(q.toUpperCase()) >= 0)
+    : S.cropList;
 
-function 建立支持選單(host) {
-  host.innerHTML = `<div class="sheet" id="supportBg" role="dialog" aria-modal="true"
-    aria-labelledby="supportTitle">
-    <div class="sheetBody">
-      <h2 id="supportTitle">買杯咖啡支持☕</h2>
-      <p>謝謝你願意支持這個農漁產行情小工具</p>
-      <ol class="supportSteps">
-        <li>先點下方按鈕，把我加入 LINE 好友。</li>
-        <li>到聊天室點「＋」→ 轉帳/小小打氣</li>
-        <li>謝謝您的支持☕</li>
-      </ol>
-      <div class="supportCaution">轉帳完成後無法取消；雙方都必須已開通 LINE Pay Money。請依自己的心意與能力支持</div>
-      ${LINE_FRIEND_URL
-        ? `<a class="btn wide" id="supportLine" href="${esc(LINE_FRIEND_URL)}"
-             target="_blank" rel="noopener noreferrer">開啟 LINE 加好友</a>`
-        : '<button class="btn wide" disabled>尚未設定 LINE 連結</button>'}
-      <button class="btn ghost wide" id="supportClose">先不用，返回 App</button>
-    </div>
-  </div>`;
+  if (!list.length) return '<div class="empty">找不到符合的作物</div>';
 
-  const 關 = () => { S.sheet = null; 畫面(); };
-  $('#supportClose').addEventListener('click', 關);
-  $('#supportBg').addEventListener('click', e => { if (e.target.id === 'supportBg') 關(); });
-}
-
-function 作物搜尋鍵(value) {
-  let key = String(value == null ? '' : value);
-  try { key = key.normalize('NFKC'); } catch (e) { /* 舊瀏覽器照原字串搜尋 */ }
-  // 名稱中的空格、連字號只是排版差異；「酪梨進口」也要能找到「酪梨-進口」。
-  // 「番／蕃」、「台／臺」也視為同一寫法，避免不同資料源用字造成找不到。
-  return key.trim().toUpperCase()
-    .replace(/蕃/g, '番').replace(/臺/g, '台')
-    .replace(/[\s\-－—_·・／/]+/g, '');
-}
-
-function 符合搜尋的作物() {
-  const q = 作物搜尋鍵(S.q);
-  if (!q) return S.cropList.slice();
-  return S.cropList.filter(c => {
-    if (作物搜尋鍵(c.code).includes(q)) return true;
-    // 完整名稱與每一段細項都比對；例如「番茄-牛番茄」可直接用「牛番茄」找到。
-    const names = [String(c.name || '')].concat(String(c.name || '').split(/[\s\-－—_·・／/]+/));
-    return names.some(name => 作物搜尋鍵(name).includes(q));
-  });
+  return list.slice(0, 300).map(c => `
+    <button class="cropItem ${c.code === S.crop.code ? 'on' : ''}"
+            data-code="${esc(c.code)}" data-name="${esc(c.name)}">
+      <b>${esc(c.name)}</b><span>${esc(c.code)}　當日 ${公斤(c.qty)}</span>
+    </button>`).join('');
 }
 
 function 填作物清單() {
-  const cat = $('#categoryPick');
-  const search = $('#itemSearch');
-  const item = $('#itemPick');
-  const help = $('#pickHelp');
-  const go = $('#pickGo');
-  if (!cat || !search || !item || !help || !go) return;
-  cat.value = S.pickCategory;
-  if (search.value !== S.q) search.value = S.q;
-  if (S.listLoading) {
-    item.innerHTML = '<option value="">正在採收清單，請稍候…</option>';
-    search.disabled = true; item.disabled = true; go.disabled = true;
-    help.textContent = '第一次載入這個大類，可能需要幾秒。';
-    return;
-  }
-  if (S.listErr) {
-    item.innerHTML = '<option value="">暫時取不到品項</option>';
-    search.disabled = true; item.disabled = true; go.disabled = true;
-    help.textContent = S.listErr;
-    return;
-  }
-  search.disabled = !S.cropList.length;
-
-  const previous = item.value;
-  const found = 符合搜尋的作物();
-  const options = found.map(c =>
-    `<option value="${esc(c.code)}" data-name="${esc(c.name)}">${esc(c.code)}｜${esc(c.name)}　${c.qty > 0 ? 公斤(c.qty) : '近期未成交'}</option>`).join('');
-  item.innerHTML = `<option value="">${S.q ? '請選擇符合品項' : '請選擇品項'}</option>` + options;
-
-  const q = 作物搜尋鍵(S.q);
-  const exact = q && found.find(c =>
-    作物搜尋鍵(c.code) === q || 作物搜尋鍵(c.name) === q);
-  const only = q && found.length === 1 ? found[0] : null;
-  const samePrevious = found.some(c => c.code === previous) ? previous : '';
-  const sameCurrent = S.pickCategory === S.category && found.some(c => c.code === S.crop.code)
-    ? S.crop.code : '';
-  item.value = (exact || only || {}).code || samePrevious || sameCurrent;
-
-  item.disabled = !found.length;
-  go.disabled = !item.value;
-  if (S.q && found.length) {
-    const chosen = found.find(c => c.code === item.value);
-    help.textContent = chosen
-      ? chosen.qty > 0
-        ? `已選取 ${chosen.code}｜${chosen.name}；按 Enter 可直接查看。`
-        : `已選取 ${chosen.code}｜${chosen.name}；最近交易日未成交，仍可查看近 ${FETCH_DAYS} 天行情。`
-      : `找到 ${found.length} 個品項，請從下拉選單挑一個。`;
-  } else if (S.q) {
-    help.textContent = `找不到「${S.q}」，請換個名稱、代碼或確認大類。`;
-  } else {
-    help.textContent = S.cropList.length
-      ? `可輸入名稱或代碼搜尋；近期有成交的排前面，完整代碼共 ${S.cropList.length} 個品項。`
-      : '這個大類最近沒有交易品項。';
-  }
+  const box = $('#cropList');
+  if (!box) return;
+  box.innerHTML = 清單HTML();
+  box.querySelectorAll('[data-code]').forEach(b =>
+    b.addEventListener('click', () => 換作物(b.dataset.code, b.dataset.name)));
 }
 
 function 建立作物選單(host) {
   host.innerHTML = `<div class="sheet" id="sheetBg">
     <div class="sheetBody">
-      <h2>選擇行情品項</h2>
-      <p>先選大類，再挑今天想看的細項。</p>
-      <label class="fieldLabel" for="categoryPick">第一步・大類</label>
-      <select class="field pickField" id="categoryPick">
-        ${Object.keys(CATEGORY).map(k => `<option value="${k}">${CATEGORY[k].name}</option>`).join('')}
-      </select>
-      <label class="fieldLabel" for="itemSearch">第二步・搜尋名稱或代碼</label>
-      <input class="field itemSearchField" id="itemSearch" type="search"
-        placeholder="例如：酪梨、G3" autocomplete="off" autocapitalize="characters"
-        spellcheck="false" enterkeyhint="search" aria-describedby="pickHelp">
-      <select class="field pickField" id="itemPick" aria-label="符合搜尋的品項"></select>
-      <div class="pickHelp" id="pickHelp"></div>
-      <button class="btn wide" id="pickGo" disabled>查看這個品項</button>
+      <h2>選擇作物</h2>
+      <p>依全台當日交易量排序，選好會記在這台裝置上。</p>
+      <input class="field" id="cropQ" type="search" placeholder="搜尋作物名稱或代號"
+             autocomplete="off" enterkeyhint="search">
+      <div class="cropList" id="cropList"></div>
       <button class="btn ghost wide" id="sheetClose" style="margin-top:12px">關閉</button>
     </div>
   </div>`;
 
   填作物清單();
 
-  const 關 = () => { S.sheet = null; S.q = ''; S.cropList = []; 畫面(); };
+  const 關 = () => { S.sheet = null; S.q = ''; 畫面(); };
   $('#sheetClose').addEventListener('click', 關);
   $('#sheetBg').addEventListener('click', e => { if (e.target.id === 'sheetBg') 關(); });
-  $('#categoryPick').addEventListener('change', e => {
-    S.pickCategory = e.target.value;
-    S.q = ''; S.cropList = []; S.listErr = '';
+
+  const qi = $('#cropQ');
+  qi.value = S.q;
+
+  // 組字中（注音／拼音／手寫）不做任何事，等 compositionend 才過濾一次
+  let 組字中 = false;
+  qi.addEventListener('compositionstart', () => { 組字中 = true; });
+  qi.addEventListener('compositionend', () => {
+    組字中 = false;
+    S.q = qi.value;
     填作物清單();
-    確保作物清單(S.pickCategory);
   });
-  const search = $('#itemSearch');
-  const 套用搜尋 = () => {
-    const next = search.value;
-    if (S.q === next) return;
-    S.q = next;
-    填作物清單();
-  };
-  // Android 中文輸入法在組字期間不一定會補送最後一次 input，因此不忽略 composing 事件。
-  search.addEventListener('input', 套用搜尋);
-  search.addEventListener('compositionend', () => setTimeout(套用搜尋, 0));
-  search.addEventListener('change', 套用搜尋);
-  search.addEventListener('search', 套用搜尋);
-  search.addEventListener('keydown', e => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    if ($('#itemPick').value) $('#pickGo').click();
-    else toast('請先輸入正確的名稱或代碼');
-  });
-  $('#itemPick').addEventListener('change', e => { $('#pickGo').disabled = !e.target.value; });
-  $('#pickGo').addEventListener('click', () => {
-    const item = $('#itemPick');
-    const opt = item.options[item.selectedIndex];
-    if (!item.value || !opt) return;
-    換作物(item.value, opt.dataset.name || opt.textContent.trim(), S.pickCategory);
+  qi.addEventListener('input', e => {
+    if (組字中 || e.isComposing) return;
+    S.q = qi.value;
+    填作物清單();     // 只換清單，絕不碰 <input>
   });
 }
 
@@ -1607,28 +1202,27 @@ document.querySelectorAll('#tabs button').forEach(b => {
 });
 $('#cropBtn').addEventListener('click', 開啟作物選單);
 
-window.addEventListener('beforeinstallprompt', e => {
-  e.preventDefault();
-  S.installPrompt = e;
-  畫面();
-});
-window.addEventListener('appinstalled', () => {
-  S.installPrompt = null;
-  toast('已安裝到主畫面');
-  畫面();
-});
-
 /* ── 啟動 ──────────────────────────────────────────────── */
 (function init() {
   讀選擇();
   const 有快取 = 讀快取();
   if (有快取) { 算市場排行(); 校正市場選擇(false); }
-  S.sheet = 'release';
   畫面();                     // 先用快取畫出來，不讓使用者盯著空白
 
   if (需要更新()) 更新(false, false);
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+  // 只有跨過斷點才重繪，一般縮放不動——SVG 本來就會跟著容器縮放
+  let 上次寬 = 寬螢幕();
+  let 重繪計時;
+  window.addEventListener('resize', () => {
+    clearTimeout(重繪計時);
+    重繪計時 = setTimeout(() => {
+      const 現在 = 寬螢幕();
+      if (現在 !== 上次寬) { 上次寬 = 現在; 畫面(); }
+    }, 180);
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
