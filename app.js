@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.7.1
+/* 波波酪梨 · 農產品行情  app.js  v1.8.0
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -12,7 +12,7 @@
  */
 'use strict';
 
-const VERSION = 'v1.7.1';
+const VERSION = 'v1.8.0';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
@@ -762,17 +762,10 @@ function 市場卡(mc, i, rows) {
 
 /* ── 畫面 ──────────────────────────────────────────────── */
 function 畫面() {
-  const 過期 = S.fetchedAt && (Date.now() - new Date(S.fetchedAt).getTime() > MAX_AGE);
-  const txt = S.loading ? '更新中…' : S.fetchedAt ? '更新於 ' + 時刻(S.fetchedAt) : '尚無資料';
-  ['#stamp', '#stamp2'].forEach(sel => {
+  ['#verBadge', '#verBadge2', '#verBadge3'].forEach(sel => {
     const el = $(sel);
-    if (!el) return;
-    el.textContent = txt;
-    el.classList.toggle('stale', !!過期 && !S.loading);
+    if (el) el.textContent = VERSION;
   });
-
-  const cb = $('#cropBtn');
-  if (cb) cb.innerHTML = `${esc(S.crop.name)}<span class="caret">▾</span>`;
 
   行情畫面();
   明細畫面();
@@ -783,7 +776,18 @@ function 畫面() {
 function 行情畫面() {
   const box = $('#priceBody');
   const rows = 期間資料();
-  let h = '';
+  const 過期 = S.fetchedAt && (Date.now() - new Date(S.fetchedAt).getTime() > MAX_AGE);
+  const 時間 = S.loading ? '更新中…' : S.fetchedAt ? '更新於 ' + 時刻(S.fetchedAt) : '尚無資料';
+
+  let h = `<div class="pageHead">
+    <div class="pageEyebrow">批發市場</div>
+    <h2>價格與交易量</h2>
+    <p class="pageDesc">選好作物與市場，比較各市場的成交價位與進貨量。</p>
+    <div class="pageBar">
+      <button class="cropBtn" id="cropBtn">${esc(S.crop.name)}<span class="caret">▾</span></button>
+      <span class="stamp ${過期 && !S.loading ? 'stale' : ''}">${esc(時間)}</span>
+    </div>
+  </div>`;
 
   if (S.err) {
     h += `<div class="notice">讀不到行情資料：${esc(S.err)}<br>
@@ -849,6 +853,8 @@ function 行情畫面() {
 }
 
 function 綁定行情事件(box) {
+  const cb = box.querySelector('#cropBtn');
+  if (cb) cb.addEventListener('click', 開啟作物選單);
   box.querySelectorAll('[data-days]').forEach(b =>
     b.addEventListener('click', () => { S.days = +b.dataset.days; 畫面(); }));
   box.querySelectorAll('[data-metric]').forEach(b =>
@@ -864,10 +870,15 @@ function 綁定行情事件(box) {
 function 明細畫面() {
   const box = $('#detailBody');
   const rows = 期間資料();
-  if (!rows.length) { box.innerHTML = '<div class="empty">還沒有資料。</div>'; return; }
+  const 頭 = `<div class="pageHead">
+    <div class="pageEyebrow">逐日資料</div>
+    <h2>每日明細</h2>
+    <p class="pageDesc">按日期列出各市場的上價、中價、下價與交易量。</p>
+  </div>`;
+  if (!rows.length) { box.innerHTML = 頭 + '<div class="empty">還沒有資料。</div>'; return; }
 
   const dates = 期間日期(rows).reverse();
-  let h = `<div class="notice calm">${esc(S.crop.name)}．近 ${S.days} 個交易日，單位為元/公斤。
+  let h = 頭 + `<div class="notice calm">${esc(S.crop.name)}．近 ${S.days} 個交易日，單位為元/公斤。
     上／中／下價分別是當日最貴 20%、中間 60%、最便宜 20% 交易量的平均。</div>`;
 
   h += '<div class="dayGrid">';
@@ -1017,6 +1028,12 @@ function 設定畫面() {
     </div>`;
 
   box.innerHTML = `
+    <div class="pageHead">
+      <div class="pageEyebrow">查詢對象與說明</div>
+      <h2>設定</h2>
+      <p class="pageDesc">切換作物與市場，並查看價格的判讀方式。</p>
+    </div>
+
     <button class="btn wide" id="btnReload" ${S.loading ? 'disabled' : ''}>
       ${S.loading ? '更新中…' : '重新整理'}
     </button>
@@ -1200,7 +1217,6 @@ document.querySelectorAll('#tabs button').forEach(b => {
     b.setAttribute('aria-current', 'true');
   });
 });
-$('#cropBtn').addEventListener('click', 開啟作物選單);
 
 /* ── 啟動 ──────────────────────────────────────────────── */
 (function init() {
