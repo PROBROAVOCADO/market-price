@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap" rel="stylesheet">
 
-<title>農產行情</title>
+<title>波波酪梨｜農產行情</title>
 <style>
 /* =========================================================
    🥑 波波酪梨 · 農產行情
@@ -91,16 +91,41 @@ button{border:0;background:none;cursor:pointer}
 
 .topbar{
   position:sticky;top:0;z-index:20;background:var(--page);
-  padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;
-  margin:0 -16px 14px;border-bottom:1px solid var(--rule-soft);
-  display:flex;align-items:center;gap:10px;
+  padding:calc(env(safe-area-inset-top) + 12px) 16px 12px;
+  margin:0 -16px 16px;border-bottom:1px solid var(--rule-soft);
+  display:flex;align-items:flex-start;gap:12px;
+}
+.tbMain{flex:1;min-width:0}
+.eyebrow{
+  font-size:.64rem;font-weight:600;letter-spacing:2.5px;
+  color:var(--accent);opacity:.9;margin-bottom:3px;
 }
 .topbar h1{
-  font-family:var(--heading-font);font-size:1.12rem;font-weight:600;margin:0;
-  letter-spacing:3px;text-indent:3px;color:var(--ink);
+  font-family:var(--heading-font);font-size:1.16rem;font-weight:600;margin:0;
+  letter-spacing:4px;text-indent:4px;color:var(--ink);line-height:1.3;
 }
-.stamp{font-size:.7rem;color:var(--accent);margin-left:auto;text-align:right;
-  letter-spacing:.5px;opacity:.9;line-height:1.4}
+.verBadge{
+  flex:none;align-self:center;
+  padding:4px 11px;border-radius:var(--r-pill);
+  background:var(--paper);border:1px solid var(--rule);
+  font-size:.66rem;font-weight:700;letter-spacing:1px;
+  color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+
+/* 頁面標題：跟 topbar 的 App 名稱分層，這裡才是「你現在在哪一頁」 */
+.pageHead{margin:0 2px 14px}
+.pageEyebrow{
+  font-size:.64rem;font-weight:600;letter-spacing:2.5px;
+  color:var(--accent);opacity:.9;margin-bottom:4px;
+}
+.pageHead h2{
+  font-family:var(--heading-font);font-size:1.5rem;font-weight:600;margin:0;
+  letter-spacing:3px;text-indent:3px;color:var(--ink);line-height:1.35;
+}
+.pageDesc{font-size:.8rem;color:var(--muted);margin:7px 0 0;line-height:1.7}
+.pageBar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+.stamp{font-size:.7rem;color:var(--accent);letter-spacing:.5px;
+  opacity:.9;line-height:1.4;margin-left:auto;text-align:right}
 .stamp.stale{color:var(--brick);font-weight:700;opacity:1}
 
 /* 作物切換鈕：沿用膠囊標籤語彙 */
@@ -484,7 +509,6 @@ nav#tabs button[aria-current="true"]{color:var(--herb);opacity:1;font-weight:700
    分頁列從底部移到左側欄；內容置中並限制寬度；
    市場卡橫排三欄——版面本來就是照三個市場設計的。
    ══════════════════════════════════════════════════════ */
-.navBrand{display:none}
 
 @media (min-width:900px){
   #app{flex-direction:row}
@@ -493,21 +517,8 @@ nav#tabs button[aria-current="true"]{color:var(--herb);opacity:1;font-weight:700
     order:-1;flex:none;width:216px;
     flex-direction:column;justify-content:flex-start;gap:4px;
     border-top:0;border-right:1px solid var(--rule);
-    padding:24px 14px calc(24px + env(safe-area-inset-bottom));
+    padding:26px 14px calc(24px + env(safe-area-inset-bottom));
     box-shadow:2px 0 12px rgba(90,78,58,.05);
-  }
-  .navBrand{
-    display:block;text-align:center;padding:6px 0 22px;
-    border-bottom:1px dashed var(--rule);margin-bottom:16px;
-  }
-  .navBrand b{
-    display:block;font-family:var(--heading-font);
-    font-size:1.05rem;font-weight:600;letter-spacing:4px;text-indent:4px;
-    color:var(--ink);
-  }
-  .navBrand span{
-    display:block;margin-top:5px;font-size:.66rem;letter-spacing:2.5px;
-    color:var(--accent);text-transform:uppercase;
   }
   nav#tabs button{
     flex:none;flex-direction:row;gap:12px;justify-content:flex-start;
@@ -569,31 +580,38 @@ nav#tabs button[aria-current="true"]{color:var(--herb);opacity:1;font-weight:700
 
   <section id="s-price" class="screen">
     <div class="topbar">
-      <h1>行情</h1>
-      <button class="cropBtn" id="cropBtn">酪梨<span class="caret">▾</span></button>
-      <div class="stamp" id="stamp">載入中…</div>
+      <div class="tbMain">
+        <div class="eyebrow">農業部公開資料</div>
+        <h1>農產行情</h1>
+      </div>
+      <span class="verBadge" id="verBadge"></span>
     </div>
     <div id="priceBody"></div>
   </section>
 
   <section id="s-detail" class="screen hide">
     <div class="topbar">
-      <h1>每日明細</h1>
-      <div class="stamp" id="stamp2"></div>
+      <div class="tbMain">
+        <div class="eyebrow">農業部公開資料</div>
+        <h1>農產行情</h1>
+      </div>
+      <span class="verBadge" id="verBadge2"></span>
     </div>
     <div id="detailBody"></div>
   </section>
 
   <section id="s-setup" class="screen hide">
-    <div class="topbar"><h1>設定</h1></div>
+    <div class="topbar">
+      <div class="tbMain">
+        <div class="eyebrow">農業部公開資料</div>
+        <h1>農產行情</h1>
+      </div>
+      <span class="verBadge" id="verBadge3"></span>
+    </div>
     <div id="setupBody"></div>
   </section>
 
   <nav id="tabs">
-    <div class="navBrand">
-      <b>波波酪梨</b>
-      <span>農產行情</span>
-    </div>
     <button data-go="s-price" aria-current="true">
       <svg viewBox="0 0 24 24"><path d="M3 17.5 9 11l4 4 8-8.5"/><path d="M21 6.5h-4.5M21 6.5V11"/></svg>
       行情
