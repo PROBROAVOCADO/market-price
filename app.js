@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農產品行情  app.js  v1.8.1
+/* 波波酪梨 · 農產品行情  app.js  v1.8.2
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -9,13 +9,15 @@
  * v1.2.0：視覺改用訂購網站 style.css v8 的設計語彙。
  * v1.4.0：補上 Page/Next 分頁處理（先前只讀第一頁，資料會被安靜截斷）。
  * v1.6.0：色票重整。原本數字的對比只有 3.56:1（全畫面最弱），現為 6.00:1。
+ * v1.8.2：恢復小額支持入口與 LINE 好友導流，並保留手機輸入縮放修正。
  */
 'use strict';
 
-const VERSION = 'v1.8.1';
+const VERSION = 'v1.8.2';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
 const MAX_MK = 3;               // 同時顯示的市場數上限（配色與版面就是照三個設計的）
+const LINE_FRIEND_URL = 'https://line.me/ti/p/7OorqI3Zzk';
 
 /* 快取結構版本。只要 寫快取() 存的欄位有增減就必須 +1，
    否則新版程式讀到舊格式，缺少的欄位會是 undefined —— 不會報錯，只會安靜地判斷錯誤。 */
@@ -59,7 +61,7 @@ const S = {
   cropList: [],       // [{code, name, qty}]
   listLoading: false,
   listErr: '',
-  sheet: null,        // 'crop' ｜ null
+  sheet: null,        // 'crop' ｜ 'support' ｜ null
   q: '',              // 作物搜尋字串
   open: {},           // 設定頁各摺疊區塊的開合狀態
   armClear: false,    // 清除鈕的兩段式確認
@@ -1065,6 +1067,15 @@ function 設定畫面() {
     ${摺疊('privacy', '統計與隱私',     隱私說明)}
     ${摺疊('legal',   '免責與來源',     免責說明)}
 
+    <div class="secTitle">支持這個小工具</div>
+    <div class="supportCard">
+      <div class="supportMark" aria-hidden="true">♡</div>
+      <h3>買杯咖啡支持☕</h3>
+      <p>如果這個行情工具替你省下一點時間，歡迎請我喝杯咖啡，支持持續維護與更新。</p>
+      <button class="btn wide" id="btnSupport">看看支持方式</button>
+      <div class="supportNote">完全自願，不影響任何功能。</div>
+    </div>
+
     <div class="secTitle">維護</div>
     <button class="dangerBtn ${S.armClear ? 'armed' : ''}" id="btnClear">
       <span class="dangerIcon">
@@ -1090,6 +1101,10 @@ function 設定畫面() {
 
   $('#btnReload').addEventListener('click', () => 更新(true, false));
   $('#btnPickCrop').addEventListener('click', 開啟作物選單);
+  $('#btnSupport').addEventListener('click', () => {
+    S.sheet = 'support';
+    畫面();
+  });
 
   $('#btnClear').addEventListener('click', () => {
     if (!S.armClear) {                       // 破壞性動作要兩段式，誤觸不會直接清光
@@ -1141,9 +1156,35 @@ function 開啟作物選單() {
  */
 function 作物選單() {
   const host = $('#sheetHost');
+  if (S.sheet === 'support') { 建立支持選單(host); return; }
   if (S.sheet !== 'crop') { host.innerHTML = ''; return; }
   if (host.querySelector('#sheetBg')) { 填作物清單(); return; }   // 已開著，只更新清單
   建立作物選單(host);
+}
+
+function 建立支持選單(host) {
+  host.innerHTML = `<div class="sheet" id="supportBg" role="dialog" aria-modal="true"
+    aria-labelledby="supportTitle">
+    <div class="sheetBody">
+      <h2 id="supportTitle">買杯咖啡支持☕</h2>
+      <p>謝謝你願意支持這個農產行情小工具</p>
+      <ol class="supportSteps">
+        <li>先點下方按鈕，把我加入 LINE 好友。</li>
+        <li>到聊天室點「＋」→ 轉帳／小小打氣。</li>
+        <li>自行輸入想支持的金額，送出前請再次核對收款人。</li>
+      </ol>
+      <div class="supportCaution">轉帳完成後無法取消；雙方都必須已開通 LINE Pay Money。請依自己的心意與能力支持，不需要勉強。</div>
+      ${LINE_FRIEND_URL
+        ? `<a class="btn wide" id="supportLine" href="${esc(LINE_FRIEND_URL)}"
+             target="_blank" rel="noopener noreferrer">開啟 LINE 加好友</a>`
+        : '<button class="btn wide" disabled>尚未設定 LINE 連結</button>'}
+      <button class="btn ghost wide" id="supportClose">先不用，返回 App</button>
+    </div>
+  </div>`;
+
+  const 關 = () => { S.sheet = null; 畫面(); };
+  $('#supportClose').addEventListener('click', 關);
+  $('#supportBg').addEventListener('click', e => { if (e.target.id === 'supportBg') 關(); });
 }
 
 function 清單HTML() {
