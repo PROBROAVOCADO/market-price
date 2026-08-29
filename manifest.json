@@ -1,7 +1,7 @@
 {
-  "name": "波波酪梨 · 農產行情",
-  "short_name": "農產行情",
-  "description": "台灣批發市場的每日行情、價格帶與交易量",
+  "name": "波波酪梨 · 農漁產行情",
+  "short_name": "農漁行情",
+  "description": "台灣水果、蔬菜與漁產批發市場的每日行情、價格帶與交易量",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
