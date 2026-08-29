@@ -531,6 +531,63 @@ nav#tabs button[aria-current="true"]{color:var(--herb);opacity:1;font-weight:700
 }
 #toast.on{opacity:.96}
 
+/* ── 桌機版（≥900px）─────────────────────────────
+   底部導覽移到左側；內容置中；卡片與明細改用多欄排列。 */
+@media (min-width:900px){
+  #app{flex-direction:row}
+
+  nav#tabs{
+    order:-1;flex:none;width:216px;
+    flex-direction:column;justify-content:flex-start;gap:4px;
+    border-top:0;border-right:1px solid var(--rule);
+    padding:26px 14px calc(24px + env(safe-area-inset-bottom));
+    box-shadow:2px 0 12px rgba(90,78,58,.05);
+  }
+  nav#tabs button{
+    flex:none;flex-direction:row;gap:12px;justify-content:flex-start;
+    padding:13px 18px;border-radius:var(--r-pill);
+    font-size:.88rem;letter-spacing:2px;
+  }
+  nav#tabs button[aria-current="true"]{
+    background:var(--herb);color:var(--paper);
+  }
+  nav#tabs svg{width:20px;height:20px}
+
+  .screen{
+    --gut:max(36px, calc((100% - 1080px) / 2));
+    padding:0 var(--gut) 48px;
+  }
+  .topbar{
+    margin:0 calc(-1 * var(--gut)) 22px;
+    padding:24px var(--gut) 15px;
+  }
+  .topbar h1{font-size:1.28rem;letter-spacing:4px;text-indent:4px}
+  .cropBtn{min-height:34px;font-size:.88rem;padding:0 17px}
+  .stamp{font-size:.76rem}
+
+  .mkRow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}
+  .mkRow .mk{margin-bottom:0}
+  .mkAvg b{font-size:2rem}
+  .dayGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px;align-items:start}
+
+  #setupBody{max-width:760px;margin:0 auto}
+  .bandLegend{max-width:560px;margin-left:auto;margin-right:auto}
+  .rangeLine,.gapLine{max-width:640px;margin-left:auto;margin-right:auto}
+  .hintLine{font-size:.74rem}
+
+  .sheet{align-items:center;justify-content:center}
+  .sheetBody{
+    max-width:520px;border-radius:var(--r-card);
+    border:1px solid var(--rule);padding:26px 26px 22px;max-height:78vh;
+  }
+  .cropList{max-height:52vh}
+  #toast{bottom:36px}
+}
+
+@media (min-width:1280px){
+  .screen{--gut:max(48px, calc((100% - 1180px) / 2))}
+}
+
 @media (prefers-reduced-motion:reduce){*{transition:none !important}}
 </style>
 </head>

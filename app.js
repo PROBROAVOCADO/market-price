@@ -1,4 +1,4 @@
-/* 波波酪梨 · 農漁產品行情  app.js  v1.8.3
+/* 波波酪梨 · 農漁產品行情  app.js  v1.8.4
  * ─────────────────────────────────────────────────────────
  * 資料來源：農業部農業資料開放平臺「農產品交易行情」與「漁產品交易行情」
  *   https://data.moa.gov.tw/api/v1/AgriProductsTransType/
@@ -15,10 +15,11 @@
  * v1.8.1：調整部分文字說明。
  * v1.8.2：恢復小額支持入口，並修正手機輸入時的自動縮放。
  * v1.8.3：完整恢復三大類、更新摘要，並加入品項搜尋、全選市場與雙欄讀數。
+ * v1.8.4：恢復桌機版左側導覽與寬螢幕多欄版面。
  */
 'use strict';
 
-const VERSION = 'v1.8.3';
+const VERSION = 'v1.8.4';
 const API = 'https://data.moa.gov.tw/api/v1/AgriProductsTransType/';
 const FISH_API = 'https://data.moa.gov.tw/Service/OpenData/FromM/AquaticTransData.aspx';
 const FETCH_DAYS = 55;          // 日曆天。每週約休一天，55 天約 46 個交易日，撐得住 30 個交易日的檢視
@@ -962,7 +963,7 @@ function 行情畫面() {
     <button class="chip ${S.days === 30 ? 'on' : ''}" data-days="30">近 30 個交易日</button>
   </div>
   <div class="chips">
-    <button class="chip ${!S.focus ? 'on' : ''}" data-focus="">${S.markets.length} 市比較</button>
+    <button class="chip ${!S.focus ? 'on' : ''}" data-focus="">${S.markets.length ? `${S.markets.length} 市比較` : '市場比較'}</button>
     ${市場鈕}
   </div>
   <div class="chips">
@@ -997,7 +998,9 @@ function 行情畫面() {
     <div class="blRow"><span class="blSym"><i class="blTri"></i></span>均價（即上方大字）</div>
     <div class="blRow"><span class="blSym"><i class="blLine"></i></span>中價</div>
   </div>`;
+  h += '<div class="mkRow">';
   S.markets.forEach((mc, i) => { h += 市場卡(mc, i, rows); });
+  h += '</div>';
 
   box.innerHTML = h;
   綁定走勢圖();
@@ -1028,6 +1031,7 @@ function 明細畫面() {
       ? '上／中／下價依漁業署公開資料原值呈現；各魚市場的分級與交易情況可能不同。'
       : '上／中／下價分別是當日最貴 20%、中間 60%、最便宜 20% 交易量的平均。'}</div>`;
 
+  h += '<div class="dayGrid">';
   dates.forEach(d => {
     const day = rows.filter(r => r.d === d);
     const tot = day.reduce((s, r) => s + (r.qty > 0 ? r.qty : 0), 0);
@@ -1055,6 +1059,7 @@ function 明細畫面() {
     });
     h += '</div>';
   });
+  h += '</div>';
   box.innerHTML = h;
 }
 
@@ -1406,16 +1411,16 @@ function 建立版本選單(host) {
       <p class="releaseHello">風一吹，園裡又冒出幾個新芽<br>這是最近三次耕耘的小小收成🌱</p>
       <div class="releaseList">
         <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.8.3</span><span class="releaseSeason">本次收成</span></div>
-          <p>走散的小功能全都收回穀倉啦！三大類、名稱搜尋、全選市場、更新摘要與支持入口，一畦不少地重新排好🌱</p>
+          <div class="releaseHead"><span class="releaseVer">v1.8.4</span><span class="releaseSeason">本次收成</span></div>
+          <p>桌機版的左側小路重新鋪好啦！導覽回到側邊，行情卡與每日明細也在寬螢幕上排得更舒展🌾</p>
         </article>
         <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.8.2</span><span class="releaseSeason">上一季</span></div>
+          <div class="releaseHead"><span class="releaseVer">v1.8.3</span><span class="releaseSeason">上一季</span></div>
+          <p>走散的小功能全都收回穀倉：三大類、名稱搜尋、全選市場、更新摘要與支持入口，一畦不少地重新排好🌱</p>
+        </article>
+        <article class="releaseItem">
+          <div class="releaseHead"><span class="releaseVer">v1.8.2</span><span class="releaseSeason">前一季</span></div>
           <p>補回「買杯咖啡支持」的小木牌，也把手機打字時忽大忽小的畫面扶正了☕</p>
-        </article>
-        <article class="releaseItem">
-          <div class="releaseHead"><span class="releaseVer">v1.8.1</span><span class="releaseSeason">前一季</span></div>
-          <p>水果、蔬菜、漁產分畦排好，先挑大類再選品項；🐟魚市場行情也一起開張。</p>
         </article>
       </div>
       <button class="btn wide" id="releaseClose">🚚 好，去逛今天的行情</button>
