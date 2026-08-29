@@ -60,11 +60,7 @@
 }
 
 *,*::before,*::after{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{
-  font-size:16px;
-  -webkit-text-size-adjust:100%;
-  text-size-adjust:100%;
-}
+html{font-size:16px}
 html,body{margin:0;height:100%;overflow:hidden}
 body{
   font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
@@ -84,10 +80,8 @@ body::before{
   background-size:cover;background-position:center;
 }
 
-button,input,select,textarea{font:inherit;color:inherit}
+button,input{font:inherit;color:inherit}
 button{border:0;background:none;cursor:pointer}
-/* 避免快速點兩下觸發頁面縮放；不會停用使用者的雙指縮放。 */
-button,a,[role="button"]{touch-action:manipulation}
 .num{font-variant-numeric:tabular-nums}
 .hide{display:none !important}
 
@@ -448,8 +442,7 @@ nav#tabs button[aria-current="true"]{color:var(--herb);opacity:1;font-weight:700
 .field{
   width:100%;min-height:48px;padding:13px 16px;
   border:1px solid var(--rule);border-radius:var(--r-field);
-  /* iOS 會自動放大小於 16px 的輸入欄位，造成關閉鍵盤後頁面仍維持放大。 */
-  background:#FEFCF8;color:var(--ink);margin-bottom:12px;font-size:1rem;
+  background:#FEFCF8;color:var(--ink);margin-bottom:12px;font-size:.9rem;
 }
 .field:focus{outline:none;border-color:var(--herb);
   box-shadow:0 0 0 3px rgba(74,103,51,.16);background:#FFFEFB}
